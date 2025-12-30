@@ -13,7 +13,7 @@ from datetime import datetime
 TOKEN = "8415663762:AAHgWl7vEtAua1bqcNPCV0n-wuO54tN1k_k"
 bot = telebot.TeleBot(TOKEN)
 
-CURRENT_VERSION = "1.0.5" # Thay đổi số này khi bạn phát hành bản mới
+CURRENT_VERSION = "2.5.5" # Thay đổi số này khi bạn phát hành bản mới
 UPDATE_API_URL = "https://laykey.x10.mx/update/config.json"
 YEUMONEY_TOKEN = "6ec3529d5d8cb18405369923670980ec155af75fb3a70c1c90c5a9d9ac25ceea"
 LINK4M_API_KEY = "66d85245cc8f2674de40add1"
@@ -62,42 +62,50 @@ def load_all_data():
 
     # Sửa hàm save_data() để hỗ trợ lưu vip_users
 
-def check_for_updates():
-    print(f"🔍 Đang kiểm tra cập nhật (Phiên bản hiện tại: {CURRENT_VERSION})...")
-    try:
-        response = requests.get(UPDATE_API_URL, timeout=10)
-        if response.status_code == 200:
-            config = response.json()
-            remote_version = config.get("version")
-            download_url = config.get("download_url")
-            update_message = config.get("message")
+import sys
 
-            if remote_version != CURRENT_VERSION:
-                print(f"🆕 Tìm thấy phiên bản mới: {remote_version}")
-                print(f"📝 Thông báo: {update_message}")
-                
-                # Tải file mới
-                new_code = requests.get(download_url, timeout=30).text
-                
-                # Ghi đè file hiện tại
-                filename = os.path.basename(__file__)
-                with open(filename, "w", encoding="utf-8") as f:
-                    f.write(new_code)
-                
-                print("✅ Đã cập nhật xong! Đang khởi động lại Bot...")
-                
-                # Gửi thông báo cho Admin nếu cần
-                bot.send_message(ADMIN_ID, f"🚀 **Hệ thống đã tự động cập nhật lên bản {remote_version}**\n`{update_message}`", parse_mode="Markdown")
-                
-                # Khởi động lại chương trình
-                os.execv(sys.executable, ['python'] + sys.argv)
-            else:
-                print("✅ Bạn đang sử dụng phiên bản mới nhất.")
-    except Exception as e:
-        print(f"🚨 Lỗi kiểm tra cập nhật: {e}")
+def auto_update_worker():
+    """Luồng chạy ngầm kiểm tra cập nhật liên tục"""
+    while True:
+        try:
+            # Tải cấu hình từ server
+            response = requests.get(UPDATE_API_URL, timeout=15)
+            if response.status_code == 200:
+                config = response.json()
+                remote_version = config.get("version")
+                download_url = config.get("download_url")
 
-# Gọi hàm kiểm tra ngay khi chạy script
-check_for_updates()
+                # So sánh phiên bản
+                if remote_version and remote_version != CURRENT_VERSION:
+                    print(f"🆕 Phát hiện bản mới {remote_version}. Đang tiến hành nâng cấp...")
+                    
+                    # Tải mã nguồn mới
+                    new_code = requests.get(download_url, timeout=30).text
+                    
+                    if "import telebot" in new_code: # Kiểm tra sơ bộ xem file có hợp lệ không
+                        filename = os.path.abspath(sys.argv[0])
+                        with open(filename, "w", encoding="utf-8") as f:
+                            f.write(new_code)
+                        
+                        print("✅ Đã ghi đè file mới. Đang khởi động lại hệ thống...")
+                        # Thông báo cho Admin trước khi tắt
+                        try:
+                            bot.send_message(ADMIN_ID, f"🚀 **Hệ thống đang tự nâng cấp:** `{CURRENT_VERSION}` ➔ `{remote_version}`\n🔔 Nội dung: `{config.get('message')}`", parse_mode="Markdown")
+                        except: pass
+                        
+                        # Khởi động lại script chính
+                        os.execv(sys.executable, ['python'] + sys.argv)
+                    else:
+                        print("🚨 File tải về không hợp lệ, hủy cập nhật.")
+            
+        except Exception as e:
+            print(f"⚠️ Lỗi kiểm tra cập nhật: {e}")
+            
+        # Kiểm tra lại sau mỗi 300 giây (5 phút) - Đừng để quá thấp tránh bị server chặn
+        time.sleep(300)
+
+# Kích hoạt luồng cập nhật ngầm
+threading.Thread(target=auto_update_worker, daemon=True).start()
 
 def save_data(file, data):
     with open(file, "w") as f:
@@ -468,7 +476,7 @@ def handle_view_like(message):
     cmd_type = "view" if "/view" in args[0].lower() else "like"
     
     # --- THIẾT LẬP SỐ LƯỢNG TĂNG THEO LOẠI ---
-    buff_amount = "10" if cmd_type == "view" else "250"
+    buff_amount = "250" if cmd_type == "view" else "10"
     
     # Gửi tin nhắn chờ
     temp_msg = bot.send_message(message.chat.id, f"⏳ **Đang gửi yêu cầu Buff {cmd_type.upper()}...**", parse_mode="Markdown")
