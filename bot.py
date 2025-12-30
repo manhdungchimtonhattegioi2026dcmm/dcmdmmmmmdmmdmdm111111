@@ -13,7 +13,7 @@ from datetime import datetime
 TOKEN = "8415663762:AAHgWl7vEtAua1bqcNPCV0n-wuO54tN1k_k"
 bot = telebot.TeleBot(TOKEN)
 
-CURRENT_VERSION = "3.3.3" # Thay đổi số này khi bạn phát hành bản mới
+CURRENT_VERSION = "4.4.4" # Thay đổi số này khi bạn phát hành bản mới
 UPDATE_API_URL = "https://laykey.x10.mx/update/config.json"
 YEUMONEY_TOKEN = "6ec3529d5d8cb18405369923670980ec155af75fb3a70c1c90c5a9d9ac25ceea"
 LINK4M_API_KEY = "66d85245cc8f2674de40add1"
@@ -85,7 +85,8 @@ def auto_update_worker():
                     if "import telebot" in new_code: # Kiểm tra sơ bộ xem file có hợp lệ không
                         filename = os.path.abspath(sys.argv[0])
                         # Tìm dòng này trong hàm auto_update_worker của bạn và sửa thành:
-                        with open(filename, "w", encoding="utf-8", newline='') as f:
+                        new_code = new_code.replace('\r\n', '\n')
+                        with open(filename, "w", encoding="utf-8", newline='\n') as f:
                             f.write(new_code)
                         
                         print("✅ Đã ghi đè file mới. Đang khởi động lại hệ thống...")
@@ -232,6 +233,26 @@ def admin_create_key_vip(message):
     user_keys[vip_key] = {"days": days, "type": "VIP"}
     
     bot.reply_to(message, f"🎫 **KEY VIP ĐÃ TẠO:**\n`{vip_key}`\n⏳ Thời hạn: `{days} ngày`\n📌 Gửi mã này cho người dùng để họ nhập `/vip {vip_key}`", parse_mode="Markdown")
+
+@bot.message_handler(commands=['checkupdate', 'up'])
+def manual_check_update(message):
+    if not is_admin(message.from_user.id): return
+    
+    bot.reply_to(message, "🔍 **Đang kiểm tra phiên bản mới...**", parse_mode="Markdown")
+    try:
+        response = requests.get(UPDATE_API_URL, timeout=15)
+        if response.status_code == 200:
+            config_data = response.json()
+            remote_version = config_data.get("version")
+            
+            if remote_version != CURRENT_VERSION:
+                bot.send_message(message.chat.id, f"🆕 Phát hiện bản mới: `{remote_version}`\n🚀 Hệ thống sẽ tự nâng cấp trong giây lát...", parse_mode="Markdown")
+                # Kích hoạt hàm cập nhật (có thể tách logic cập nhật ra hàm riêng để gọi ở đây)
+                # Hoặc chỉ đơn giản là đợi luồng auto_update_worker quét trúng
+            else:
+                bot.reply_to(message, f"✅ Bạn đang sử dụng bản mới nhất (`{CURRENT_VERSION}`).", parse_mode="Markdown")
+    except Exception as e:
+        bot.reply_to(message, f"⚠️ Lỗi kết nối server: {e}")
 
 @bot.message_handler(commands=['checkvip'])
 def admin_check_vip(message):
@@ -581,6 +602,5 @@ def handle_buff(message):
 
     except Exception as e:
         bot.edit_message_text(f"🚨 **Lỗi API:** Không thể lấy dữ liệu!", message.chat.id, temp_msg.message_id)
-
 
 bot.infinity_polling()
