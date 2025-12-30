@@ -13,7 +13,7 @@ from datetime import datetime
 TOKEN = "8415663762:AAHgWl7vEtAua1bqcNPCV0n-wuO54tN1k_k"
 bot = telebot.TeleBot(TOKEN)
 
-CURRENT_VERSION = "2.5.5" # Thay đổi số này khi bạn phát hành bản mới
+CURRENT_VERSION = "3.3.3" # Thay đổi số này khi bạn phát hành bản mới
 UPDATE_API_URL = "https://laykey.x10.mx/update/config.json"
 YEUMONEY_TOKEN = "6ec3529d5d8cb18405369923670980ec155af75fb3a70c1c90c5a9d9ac25ceea"
 LINK4M_API_KEY = "66d85245cc8f2674de40add1"
@@ -581,5 +581,6 @@ def handle_buff(message):
 
     except Exception as e:
         bot.edit_message_text(f"🚨 **Lỗi API:** Không thể lấy dữ liệu!", message.chat.id, temp_msg.message_id)
+
 
 bot.infinity_polling()
