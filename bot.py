@@ -84,7 +84,8 @@ def auto_update_worker():
                     
                     if "import telebot" in new_code: # Kiểm tra sơ bộ xem file có hợp lệ không
                         filename = os.path.abspath(sys.argv[0])
-                        with open(filename, "w", encoding="utf-8") as f:
+                        # Tìm dòng này trong hàm auto_update_worker của bạn và sửa thành:
+                        with open(filename, "w", encoding="utf-8", newline='') as f:
                             f.write(new_code)
                         
                         print("✅ Đã ghi đè file mới. Đang khởi động lại hệ thống...")
