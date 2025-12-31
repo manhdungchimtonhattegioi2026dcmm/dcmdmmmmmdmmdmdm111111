@@ -16,10 +16,12 @@ bot = telebot.TeleBot(TOKEN)
 # ================== CẤU HÌNH REPORT ==================
 REPORT_CHAT_ID = -1002542187639
 REPORT_TOPIC_ID = 11780
-CURRENT_VERSION = "5.5.8" # Thay đổi số này khi bạn phát hành bản mới
+CURRENT_VERSION = "5.5.9" # Thay đổi số này khi bạn phát hành bản mới
 UPDATE_API_URL = "https://laykey.x10.mx/update/config.json"
 YEUMONEY_TOKEN = "6ec3529d5d8cb18405369923670980ec155af75fb3a70c1c90c5a9d9ac25ceea"
 LINK4M_API_KEY = "66d85245cc8f2674de40add1"
+
+owner_id = liggdzut1
 
 ADMIN_ID = 6683331082
 BOT_STATUS = True # Trạng thái hoạt động (Admin /on /off)
@@ -248,13 +250,50 @@ def auto_treo_worker():
                             success = True
 
                         if success:
-                            # Gửi báo cáo vào nhóm log
-                            msg = (f"🔄 **[AUTO REPORT]**\n"
-                                   f"🎯 Đích: `{target}`\n"
-                                   f"🛠 Loại: `{target_type.upper()}`\n"
-                                   f"👤 Chủ: `{owner_id}`\n"
-                                   f"✅ Trạng thái: Buff thành công")
-                            bot.send_message(REPORT_CHAT_ID, msg, message_thread_id=REPORT_TOPIC_ID, parse_mode="Markdown")
+                            # 1. Khởi tạo nội dung chi tiết dựa trên loại dịch vụ
+                            if target_type == 'follow':
+                                # Giả sử bạn lấy được follow_before và follow_after từ API (nếu có)
+                                # Nếu API không trả về, bạn có thể để trống hoặc lấy từ một hàm check sub
+                                fb = info.get('follow_before', 'N/A') 
+                                fa = info.get('follow_after', 'N/A')
+                                real = info.get('real_added', '15') # Mặc định hoặc lấy từ API
+                                
+                                details = (f"│ 🔹 Trước: <b>{fb}</b>\n"
+                                        f"│ 🔸 Sau: <b>{fa}</b>\n"
+                                        f"│ ✨ Thực tăng: <b>+{real} Follow</b>")
+                                        
+                            elif target_type == 'view':
+                                details = f"│ ⚡ Trạng thái: <b>+250 VIEW</b>"
+                                
+                            elif target_type == 'like':
+                                details = f"│ ⚡ Trạng thái: <b>+10 LIKE</b>"
+                                
+                            elif target_type == 'all':
+                                details = (f"│ 📺 View: <b>+250</b>\n"
+                                        f"│ ❤️ Like: <b>+10</b>\n"
+                                        f"│ 👤 Follow: <b>Đã gửi yêu cầu</b>")
+
+                            # 2. Xây dựng cấu trúc tin nhắn HTML chuyên nghiệp
+                            html_msg = (
+                                f"<b>🔄 [ AUTO REPORT SYSTEM ]</b>\n"
+                                f"<code>────────────────────────</code>\n"
+                                f"👤 <b>Chủ sở hữu:</b> <code>{owner_id}</code>\n"
+                                f"🎯 <b>Mục tiêu:</b> <code>{target}</code>\n"
+                                f"🛠 <b>Dịch vụ:</b> <b>{target_type.upper()}</b>\n"
+                                f"<code>────────────────────────</code>\n"
+                                f"{details}\n"
+                                f"<code>────────────────────────</code>\n"
+                                f"✅ <b>Trạng thái:</b> <i>Hoàn thành chu kỳ!</i>"
+                            )
+
+                            # 3. Gửi tin nhắn với parse_mode="HTML"
+                            bot.send_message(
+                                REPORT_CHAT_ID, 
+                                html_msg, 
+                                message_thread_id=REPORT_TOPIC_ID, 
+                                parse_mode="HTML",
+                                disable_web_page_preview=True # Tắt xem trước link cho gọn
+                            )
                             
                             # Cập nhật thời gian buff cuối cùng
                             treo_list[key_name]['last_buff'] = now
@@ -856,6 +895,5 @@ def handle_buff(message):
 worker_thread = threading.Thread(target=auto_treo_worker)
 worker_thread.daemon = True # Thread sẽ tự tắt khi bạn tắt script chính
 worker_thread.start()
-
 
 bot.infinity_polling()
