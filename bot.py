@@ -13,7 +13,10 @@ from datetime import datetime
 TOKEN = "8415663762:AAHgWl7vEtAua1bqcNPCV0n-wuO54tN1k_k"
 bot = telebot.TeleBot(TOKEN)
 
-CURRENT_VERSION = "5.5.5" # Thay đổi số này khi bạn phát hành bản mới
+# ================== CẤU HÌNH REPORT ==================
+REPORT_CHAT_ID = -1002542187639
+REPORT_TOPIC_ID = 11780
+CURRENT_VERSION = "5.5.6" # Thay đổi số này khi bạn phát hành bản mới
 UPDATE_API_URL = "https://laykey.x10.mx/update/config.json"
 YEUMONEY_TOKEN = "6ec3529d5d8cb18405369923670980ec155af75fb3a70c1c90c5a9d9ac25ceea"
 LINK4M_API_KEY = "66d85245cc8f2674de40add1"
@@ -137,32 +140,47 @@ load_all_data()
 def auto_treo_worker():
     while True:
         now = int(time.time())
-        for username, info in list(treo_list.items()):
-            # Kiểm tra hết hạn ngày treo
+        for key_name, info in list(treo_list.items()):
             if now > info['expiry_treo']:
-                del treo_list[username]
+                del treo_list[key_name]
                 save_data(TREO_FILE, treo_list)
-                bot.send_message(ADMIN_ID, f"🔔 **Hết hạn treo cho:** `@{username}`", parse_mode="Markdown")
                 continue
             
-            # Kiểm tra chu kỳ delay (giây)
             if now >= (info['last_buff'] + info['delay']):
+                target = info.get('target') # Đây là Link hoặc User
+                target_type = info.get('type')
+                success = False
+                
                 try:
-                    r = requests.get(f"https://liggdzut.x10.mx/fl.php?fl={username}&key=liggdzut", timeout=30).json()
-                    treo_list[username]['last_buff'] = now
-                    save_data(TREO_FILE, treo_list)
+                    # TREO FOLLOW (Cần Username)
+                    if target_type == 'follow':
+                        user_name = target.replace("@", "").split("/")[-1] # Lọc lấy username nếu lỡ nhập link
+                        r = requests.get(f"https://liggdzut.x10.mx/fl.php?fl={user_name}&key=liggdzut", timeout=20).json()
+                        if r.get("status") == "success": success = True
                     
-                    if r.get("status") == "success":
-                        d = r.get("data", {})
-                        msg = (f"🔄 **[AUTO REPORT]**\n"
-                               f"👤 Nick: `@{username}`\n"
-                               f"✨ Tăng: `+{d.get('follow_added')}`\n"
-                               f"📊 Sau buff: `{d.get('follow_after')}`")
-                        bot.send_message(ADMIN_ID, msg, parse_mode="Markdown")
+                    # TREO VIEW / LIKE (Cần Link Video)
+                    elif target_type in ['view', 'like']:
+                        r = requests.get(f"https://laykey.x10.mx/view.php?link={target}&id={target_type}", timeout=20).json()
+                        if r.get("status") == "success": success = True
+                    
+                    # TREO ALL (Chạy cả 3 - Yêu cầu target phải là Link video để lấy được thông tin)
+                    elif target_type == 'all':
+                        # Gọi cả 3 API
+                        requests.get(f"https://laykey.x10.mx/view.php?link={target}&id=view")
+                        requests.get(f"https://laykey.x10.mx/view.php?link={target}&id=like")
+                        # Follow thì lấy user từ link (giả định link tiktok chuẩn)
+                        u_name = target.split("@")[-1].split("/")[0]
+                        requests.get(f"https://liggdzut.x10.mx/fl.php?fl={u_name}&key=liggdzut")
+                        success = True
+
+                    if success:
+                        msg = f"🔄 **[AUTO REPORT]**\n🎯 Đích: `{target[:30]}...`\n🛠 Loại: `{target_type.upper()}`\n✅ Trạng thái: Đã gửi yêu cầu"
+                        bot.send_message(REPORT_CHAT_ID, msg, message_thread_id=REPORT_TOPIC_ID, parse_mode="Markdown")
+
+                    treo_list[key_name]['last_buff'] = now
+                    save_data(TREO_FILE, treo_list)
                 except: pass
         time.sleep(15)
-
-threading.Thread(target=auto_treo_worker, daemon=True).start()
 
 # ================== ADMIN COMMANDS ==================
 def is_admin(uid): return str(uid) == str(ADMIN_ID)
@@ -249,11 +267,39 @@ def admin_create_key_vip(message):
     
     bot.reply_to(message, f"🎫 **KEY VIP ĐÃ TẠO:**\n`{vip_key}`\n⏳ Thời hạn: `{days} ngày`\n📌 Gửi mã này cho người dùng để họ nhập `/vip {vip_key}`", parse_mode="Markdown")
 
+def perform_update(config):
+    """Hàm thực hiện tải code mới và khởi động lại bot"""
+    remote_version = config.get("version")
+    download_url = config.get("download_url")
+    
+    try:
+        print(f"🆕 Đang tải bản cập nhật {remote_version}...")
+        new_code = requests.get(download_url, timeout=30).text
+        
+        if "import telebot" in new_code:
+            filename = os.path.abspath(sys.argv[0])
+            new_code = new_code.replace('\r\n', '\n')
+            
+            with open(filename, "w", encoding="utf-8", newline='\n') as f:
+                f.write(new_code)
+            
+            print("✅ Ghi file thành công. Đang khởi động lại...")
+            try:
+                bot.send_message(ADMIN_ID, f"🚀 **Hệ thống đã nâng cấp lên:** `{remote_version}`\n🔔 Nội dung: `{config.get('message')}`", parse_mode="Markdown")
+            except: pass
+            
+            # Khởi động lại
+            os.execv(sys.executable, ['python'] + sys.argv)
+            return True
+    except Exception as e:
+        print(f"🚨 Lỗi khi thực hiện update: {e}")
+    return False
+
 @bot.message_handler(commands=['checkupdate', 'up'])
 def manual_check_update(message):
     if not is_admin(message.from_user.id): return
     
-    bot.reply_to(message, "🔍 **Đang kiểm tra phiên bản mới...**", parse_mode="Markdown")
+    bot.reply_to(message, "🔍 **Đang kiểm tra và cập nhật ngay...**", parse_mode="Markdown")
     try:
         response = requests.get(UPDATE_API_URL, timeout=15)
         if response.status_code == 200:
@@ -261,13 +307,14 @@ def manual_check_update(message):
             remote_version = config_data.get("version")
             
             if remote_version != CURRENT_VERSION:
-                bot.send_message(message.chat.id, f"🆕 Phát hiện bản mới: `{remote_version}`\n🚀 Hệ thống sẽ tự nâng cấp trong giây lát...", parse_mode="Markdown")
-                # Kích hoạt hàm cập nhật (có thể tách logic cập nhật ra hàm riêng để gọi ở đây)
-                # Hoặc chỉ đơn giản là đợi luồng auto_update_worker quét trúng
+                bot.send_message(message.chat.id, f"🆕 Phát hiện bản mới: `{remote_version}`. Tiến hành tải về...", parse_mode="Markdown")
+                # Gọi hàm cập nhật ngay lập tức
+                if not perform_update(config_data):
+                    bot.reply_to(message, "❌ Cập nhật thất bại (Lỗi ghi file hoặc tải code).")
             else:
-                bot.reply_to(message, f"✅ Bạn đang sử dụng bản mới nhất (`{CURRENT_VERSION}`).", parse_mode="Markdown")
+                bot.reply_to(message, f"✅ Bạn đang dùng bản mới nhất (`{CURRENT_VERSION}`).", parse_mode="Markdown")
     except Exception as e:
-        bot.reply_to(message, f"⚠️ Lỗi kết nối server: {e}")
+        bot.reply_to(message, f"⚠️ Lỗi kết nối: {e}")
 
 @bot.message_handler(commands=['checkvip'])
 def admin_check_vip(message):
@@ -298,44 +345,40 @@ def broadcast(message):
 @bot.message_handler(commands=['treo'])
 def handle_treo(message):
     uid = str(message.from_user.id)
-    # Kiểm tra quyền: Là Admin HOẶC là VIP còn hạn
-    is_vip = uid in vip_users and int(time.time()) < vip_users[uid]
+    u_vip = vip_users.get(uid)
+    is_vip = u_vip and int(time.time()) < u_vip.get('expiry', 0)
     
     if not is_admin(uid) and not is_vip:
-        return bot.reply_to(message, "💎 **Lệnh này chỉ dành cho VIP!**\nVui lòng liên hệ Admin hoặc dùng Key VIP để mở khóa.", parse_mode="Markdown")
+        return bot.reply_to(message, "💎 Lệnh này chỉ dành cho VIP!")
 
-    args = message.text.split()
-    if len(args) == 4: # /treo [user] [giây] [ngày]
-        user, delay, days = args[1].replace("@", ""), int(args[2]), int(args[3])
-        
-        # Giới hạn cho VIP (Tránh treo quá lâu hoặc delay quá thấp nếu cần)
-        if not is_admin(uid) and delay < 60:
-            return bot.reply_to(message, "⚠️ VIP chỉ được treo tối thiểu delay `60s`!")
+    args = message.text.split() 
+    # Cú pháp: /treo [link_hoặc_user] [giây] [ngày] [loại]
+    if len(args) == 5:
+        target = args[1]
+        delay = max(int(args[2]), 30)
+        days = int(args[3])
+        req_type = args[4].lower()
+
+        # Kiểm tra quyền Key VIP
+        allowed = u_vip.get('service', 'all') if not is_admin(uid) else 'all'
+        if allowed != 'all' and req_type != allowed:
+            return bot.reply_to(message, f"❌ Key của bạn chỉ hỗ trợ: `{allowed.upper()}`")
 
         expiry = int(time.time()) + (days * 86400)
-        treo_list[user] = {"delay": delay, "expiry_treo": expiry, "last_buff": 0, "owner": uid}
-        save_data(TREO_FILE, treo_list)
-        bot.reply_to(message, f"✅ **Đã bắt đầu treo!**\n👤 Nick: `@{user}`\n⏱ Chu kỳ: `{delay}s`\n📅 Thời hạn: `{days} ngày`", parse_mode="Markdown")
+        # Dùng target làm key lưu trữ để tránh trùng lặp
+        storage_key = hashlib.md5(target.encode()).hexdigest()[:10]
         
-    elif len(args) == 3 and args[1] == "off":
-        user = args[2].replace("@", "")
-        if user in treo_list:
-            # Chỉ cho phép chủ sở hữu hoặc admin tắt
-            if not is_admin(uid) and treo_list[user].get("owner") != uid:
-                return bot.reply_to(message, "❌ Bạn không có quyền dừng nick này!")
-                
-            del treo_list[user]
-            save_data(TREO_FILE, treo_list)
-            bot.reply_to(message, f"⏹ **Đã dừng treo cho:** `@{user}`", parse_mode="Markdown")
+        treo_list[storage_key] = {
+            "target": target,
+            "delay": delay, 
+            "expiry_treo": expiry, 
+            "last_buff": 0, 
+            "type": req_type
+        }
+        save_data(TREO_FILE, treo_list)
+        bot.reply_to(message, f"✅ **Đã nhận treo {req_type.upper()}!**\n🔗 Đích: `{target}`\n⏱ Chu kỳ: `{delay}s`", parse_mode="Markdown")
     else:
-        # Show danh sách
-        if not treo_list: return bot.reply_to(message, "📝 **Không có nick nào đang treo.**", parse_mode="Markdown")
-        txt = "📋 **DANH SÁCH TREO:**\n"
-        for u, i in treo_list.items():
-            # Chỉ admin thấy hết, người dùng chỉ thấy nick mình treo (tùy chỉnh)
-            if is_admin(uid) or i.get("owner") == uid:
-                txt += f"- `@{u}` | `{i['delay']}s`\n"
-        bot.reply_to(message, txt, parse_mode="Markdown")
+        bot.reply_to(message, "❓ **Sử dụng:** `/treo [Link/User] [Giây] [Ngày] [Loại]`\n*(Loại: view, like, follow, all)*")
 
 # ================== USER COMMANDS ==================
 @bot.message_handler(commands=['start', 'help'])
@@ -372,6 +415,7 @@ def send_welcome(message):
 │ 🤖 BOT TIKTOK SERVICE
 ├─────────────⭓
 │ /getkey : Lấy mã sử dụng
+| /ref : Giới Thiệu Nhận Vip
 │ /key [mã] : Xác thực Key
 │ /vip [mã] : Kích hoạt VIP
 │ /stats  : Xem thông tin cá nhân
