@@ -198,55 +198,75 @@ def save_data(file, data):
 load_all_data()
 
 # ================== HỆ THỐNG TREO AUTO ==================
-def auto_treo_worker():
-    while True:
-        now = int(time.time())
-        for key_name, info in list(treo_list.items()):
-            if now > info['expiry_treo']:
-                del treo_list[key_name]
-                save_data(TREO_FILE, treo_list)
-                continue
-            
-            if now >= (info['last_buff'] + info['delay']):
-                target = info.get('target') # Đây là Link hoặc User
-                target_type = info.get('type')
-                success = False
-                
-                try:
-                    # TREO FOLLOW (Cần Username)
-                    if target_type == 'follow':
-                        user_name = target.replace("@", "").split("/")[-1] # Lọc lấy username nếu lỡ nhập link
-                        r = requests.get(f"https://liggdzut.x10.mx/fl.php?fl={user_name}&key=liggdzut", timeout=20).json()
-                        if r.get("status") == "success": success = True
-                    
-                    # TREO VIEW / LIKE (Cần Link Video)
-                    elif target_type in ['view', 'like']:
-                        r = requests.get(f"https://laykey.x10.mx/view.php?link={target}&id={target_type}", timeout=20).json()
-                        if r.get("status") == "success": success = True
-                    
-                    # TREO ALL (Chạy cả 3 - Yêu cầu target phải là Link video để lấy được thông tin)
-                    elif target_type == 'all':
-                        # Gọi cả 3 API
-                        requests.get(f"https://laykey.x10.mx/view.php?link={target}&id=view")
-                        requests.get(f"https://laykey.x10.mx/view.php?link={target}&id=like")
-                        # Follow thì lấy user từ link (giả định link tiktok chuẩn)
-                        u_name = target.split("@")[-1].split("/")[0]
-                        requests.get(f"https://liggdzut.x10.mx/fl.php?fl={u_name}&key=liggdzut")
-                        success = True
+import threading
+import time
+import requests
 
-                    if success:
-                        # Trong hàm auto_treo_worker, chỗ gửi báo cáo:
-                        owner_id = info.get('owner', 'N/A')
-                        msg = (f"🔄 **[AUTO REPORT]**\n"
-                            f"🎯 Đích: `{target}`\n"
-                            f"🛠 Loại: `{target_type.upper()}`\n"
-                            f"👤 Chủ: `{owner_id}`\n"
-                            f"✅ Trạng thái: Đã gửi API")
-                        bot.send_message(REPORT_CHAT_ID, msg, message_thread_id=REPORT_TOPIC_ID, parse_mode="Markdown")
-                    treo_list[key_name]['last_buff'] = now
+def auto_treo_worker():
+    print("--- Hệ thống Treo bắt đầu hoạt động ---")
+    while True:
+        try:
+            now = int(time.time())
+            # Duyệt qua bản sao của list để tránh lỗi "dictionary changed size"
+            for key_name, info in list(treo_list.items()):
+                # Ép kiểu dữ liệu để đảm bảo an toàn
+                expiry_treo = int(info.get('expiry_treo', 0))
+                last_buff = int(info.get('last_buff', 0))
+                delay = int(info.get('delay', 30))
+                target = info.get('target')
+                target_type = info.get('type')
+                owner_id = info.get('owner', 'N/A')
+
+                # 1. Kiểm tra hết hạn treo
+                if now > expiry_treo:
+                    del treo_list[key_name]
                     save_data(TREO_FILE, treo_list)
-                except: pass
-        time.sleep(15)
+                    continue
+                
+                # 2. Kiểm tra đến thời gian buff tiếp theo chưa
+                if now >= (last_buff + delay):
+                    success = False
+                    try:
+                        # Xử lý theo loại
+                        if target_type == 'follow':
+                            u_name = target.replace("@", "").split("/")[-1]
+                            r = requests.get(f"https://liggdzut.x10.mx/fl.php?fl={u_name}&key=liggdzut", timeout=15).json()
+                            if r.get("status") == "success": success = True
+                        
+                        elif target_type in ['view', 'like']:
+                            r = requests.get(f"https://laykey.x10.mx/view.php?link={target}&id={target_type}", timeout=15).json()
+                            if r.get("status") == "success": success = True
+                        
+                        elif target_type == 'all':
+                            # Gọi API View & Like
+                            requests.get(f"https://laykey.x10.mx/view.php?link={target}&id=view", timeout=10)
+                            requests.get(f"https://laykey.x10.mx/view.php?link={target}&id=like", timeout=10)
+                            # Tách username từ link để gọi Follow
+                            if "@" in target:
+                                u_name = target.split("@")[-1].split("/")[0]
+                                requests.get(f"https://liggdzut.x10.mx/fl.php?fl={u_name}&key=liggdzut", timeout=10)
+                            success = True
+
+                        if success:
+                            # Gửi báo cáo vào nhóm log
+                            msg = (f"🔄 **[AUTO REPORT]**\n"
+                                   f"🎯 Đích: `{target}`\n"
+                                   f"🛠 Loại: `{target_type.upper()}`\n"
+                                   f"👤 Chủ: `{owner_id}`\n"
+                                   f"✅ Trạng thái: Buff thành công")
+                            bot.send_message(REPORT_CHAT_ID, msg, message_thread_id=REPORT_TOPIC_ID, parse_mode="Markdown")
+                            
+                            # Cập nhật thời gian buff cuối cùng
+                            treo_list[key_name]['last_buff'] = now
+                            save_data(TREO_FILE, treo_list)
+
+                    except Exception as api_err:
+                        print(f"Lỗi gọi API cho {target}: {api_err}")
+
+        except Exception as e:
+            print(f"Lỗi vòng lặp worker: {e}")
+        
+        time.sleep(15) # Nghỉ 15s trước khi quét lại toàn bộ danh sách
 
 # ================== ADMIN COMMANDS ==================
 def is_admin(uid): return str(uid) == str(ADMIN_ID)
@@ -436,10 +456,11 @@ def handle_treo(message):
         
         treo_list[storage_key] = {
             "target": target,
-            "delay": delay, 
-            "expiry_treo": expiry, 
+            "delay": int(delay), # Ép kiểu số
+            "expiry_treo": int(expiry), # Ép kiểu số
             "last_buff": 0, 
-            "type": req_type
+            "type": req_type,
+            "owner": uid  # <--- THÊM DÒNG NÀY
         }
         save_data(TREO_FILE, treo_list)
         bot.reply_to(message, f"✅ **Đã nhận treo {req_type.upper()}!**\n🔗 Đích: `{target}`\n⏱ Chu kỳ: `{delay}s`", parse_mode="Markdown")
@@ -831,5 +852,9 @@ def handle_buff(message):
 
     except Exception as e:
         bot.edit_message_text(f"🚨 **Lỗi API:** Không thể lấy dữ liệu!", message.chat.id, temp_msg.message_id)
+
+worker_thread = threading.Thread(target=auto_treo_worker)
+worker_thread.daemon = True # Thread sẽ tự tắt khi bạn tắt script chính
+worker_thread.start()
 
 bot.infinity_polling()
