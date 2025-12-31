@@ -16,7 +16,7 @@ bot = telebot.TeleBot(TOKEN)
 # ================== CẤU HÌNH REPORT ==================
 REPORT_CHAT_ID = -1002542187639
 REPORT_TOPIC_ID = 11780
-CURRENT_VERSION = "5.5.6" # Thay đổi số này khi bạn phát hành bản mới
+CURRENT_VERSION = "5.5.7" # Thay đổi số này khi bạn phát hành bản mới
 UPDATE_API_URL = "https://laykey.x10.mx/update/config.json"
 YEUMONEY_TOKEN = "6ec3529d5d8cb18405369923670980ec155af75fb3a70c1c90c5a9d9ac25ceea"
 LINK4M_API_KEY = "66d85245cc8f2674de40add1"
@@ -79,6 +79,67 @@ def load_all_data():
         except: vip_users = {}
 
     # Sửa hàm save_data() để hỗ trợ lưu vip_users
+@bot.message_handler(commands=['listtreo'])
+def list_treo(message):
+    if not is_admin(message.from_user.id): return
+    
+    if not treo_list:
+        return bot.reply_to(message, "📭 Hiện tại không có link nào đang treo.")
+    
+    txt = "📊 **DANH SÁCH ĐANG TREO HỆ THỐNG**\n"
+    txt += "────────────────\n"
+    
+    for i, (key, info) in enumerate(treo_list.items(), 1):
+        target = info.get('target', 'Không rõ')
+        t_type = info.get('type', 'all').upper()
+        # Tính thời gian còn lại
+        remaining = info['expiry_treo'] - int(time.time())
+        days = remaining // 86400
+        hours = (remaining % 86400) // 3600
+        
+        # Rút gọn link nếu quá dài để tránh lỗi hiển thị telegram
+        display_target = (target[:25] + '...') if len(target) > 25 else target
+        
+        txt += f"{i}. `{display_target}`\n"
+        txt += f"   Type: `{t_type}` | Còn: `{days}n {hours}h` | ID: `{key}`\n"
+        
+        # Giới hạn hiển thị 20 link mỗi tin nhắn để tránh quá tải
+        if i % 20 == 0:
+            bot.send_message(message.chat.id, txt, parse_mode="Markdown")
+            txt = ""
+
+    if txt:
+        bot.send_message(message.chat.id, txt, parse_mode="Markdown")
+@bot.message_handler(commands=['huytreo', 'stop'])
+def stop_treo(message):
+    uid = str(message.from_user.id)
+    args = message.text.split()
+    
+    if len(args) < 2:
+        return bot.reply_to(message, "❌ Vui lòng nhập **ID treo** hoặc **Link/User** cần hủy.\nSử dụng `/listtreo` để lấy ID (dành cho Admin).", parse_mode="Markdown")
+    
+    input_val = args[1]
+    found = False
+    
+    # Duyệt tìm trong danh sách treo
+    for key, info in list(treo_list.items()):
+        # Kiểm tra nếu input khớp với ID (key) hoặc khớp với Target (Link/User)
+        if input_val == key or input_val == info.get('target'):
+            # Kiểm tra quyền: Phải là chủ sở hữu hoặc Admin
+            if is_admin(uid) or info.get('owner') == uid:
+                del treo_list[key]
+                save_data(TREO_FILE, treo_list)
+                bot.reply_to(message, f"✅ Đã dừng treo thành công cho: `{info.get('target')}`")
+                
+                # Báo cáo về Group Admin
+                bot.send_message(REPORT_CHAT_ID, f"🚫 **[HUY TREO]**\n👤 Người thực hiện: `{uid}`\n🎯 Mục tiêu: `{info.get('target')}`", message_thread_id=REPORT_TOPIC_ID, parse_mode="Markdown")
+                found = True
+                break
+            else:
+                return bot.reply_to(message, "⚠️ Bạn không có quyền dừng link này!")
+
+    if not found:
+        bot.reply_to(message, "❌ Không tìm thấy mục tiêu này trong danh sách đang treo.")
 
 import sys
 
@@ -174,9 +235,14 @@ def auto_treo_worker():
                         success = True
 
                     if success:
-                        msg = f"🔄 **[AUTO REPORT]**\n🎯 Đích: `{target[:30]}...`\n🛠 Loại: `{target_type.upper()}`\n✅ Trạng thái: Đã gửi yêu cầu"
+                        # Trong hàm auto_treo_worker, chỗ gửi báo cáo:
+                        owner_id = info.get('owner', 'N/A')
+                        msg = (f"🔄 **[AUTO REPORT]**\n"
+                            f"🎯 Đích: `{target}`\n"
+                            f"🛠 Loại: `{target_type.upper()}`\n"
+                            f"👤 Chủ: `{owner_id}`\n"
+                            f"✅ Trạng thái: Đã gửi API")
                         bot.send_message(REPORT_CHAT_ID, msg, message_thread_id=REPORT_TOPIC_ID, parse_mode="Markdown")
-
                     treo_list[key_name]['last_buff'] = now
                     save_data(TREO_FILE, treo_list)
                 except: pass
