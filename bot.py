@@ -13,7 +13,7 @@ from datetime import datetime
 TOKEN = "8415663762:AAHgWl7vEtAua1bqcNPCV0n-wuO54tN1k_k"
 bot = telebot.TeleBot(TOKEN)
 
-CURRENT_VERSION = "4.4.4" # Thay đổi số này khi bạn phát hành bản mới
+CURRENT_VERSION = "5.5.5" # Thay đổi số này khi bạn phát hành bản mới
 UPDATE_API_URL = "https://laykey.x10.mx/update/config.json"
 YEUMONEY_TOKEN = "6ec3529d5d8cb18405369923670980ec155af75fb3a70c1c90c5a9d9ac25ceea"
 LINK4M_API_KEY = "66d85245cc8f2674de40add1"
@@ -32,6 +32,11 @@ all_users = set()     # Tập hợp ID người dùng
 VIP_FILE = "vip_users.json"
 vip_users = {} # { "uid": expiry_timestamp }
 
+REFERRAL_FILE = "referrals.json"
+REF_CONFIG_FILE = "ref_config.json"
+
+referrals = {} # { "uid": {"count": 0, "invited_users": [], "claimed": False} }
+ref_config = {"required": 20, "reward_days": 5} # Mặc định 20 người được 5 ngày VIP
 # ================== XỬ LÝ DỮ LIỆU FILE ==================
 def load_all_data():
     global allowed_users, treo_list, all_users
@@ -41,6 +46,16 @@ def load_all_data():
                 allowed_users = {str(k): v for k, v in json.load(f).items()}
         except: allowed_users = {}
     
+    global referrals, ref_config
+    if os.path.exists(REFERRAL_FILE):
+        try:
+            with open(REFERRAL_FILE, "r") as f: referrals = json.load(f)
+        except: referrals = {}
+    if os.path.exists(REF_CONFIG_FILE):
+        try:
+            with open(REF_CONFIG_FILE, "r") as f: ref_config = json.load(f)
+        except: ref_config = {"required": 20, "reward_days": 5}
+        
     if os.path.exists(TREO_FILE):
         try:
             with open(TREO_FILE, "r") as f:
@@ -325,10 +340,32 @@ def handle_treo(message):
 # ================== USER COMMANDS ==================
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(message):
-    uid = message.from_user.id
-    if uid not in all_users:
-        all_users.add(uid)
+    uid = str(message.from_user.id)
+    args = message.text.split()
+    
+    # Lưu người dùng mới vào danh sách hệ thống
+    if int(uid) not in all_users:
+        all_users.add(int(uid))
         save_data(USER_LIST_FILE, all_users)
+        
+        # XỬ LÝ GIỚI THIỆU
+        if len(args) > 1 and args[1].isdigit():
+            referrer_id = args[1]
+            if referrer_id != uid: # Không tự giới thiệu chính mình
+                if referrer_id not in referrals:
+                    referrals[referrer_id] = {"count": 0, "invited_users": [], "claimed_count": 0}
+                
+                # Thêm vào danh sách chờ (chưa tính điểm ngay, đợi 1h + getkey)
+                if uid not in referrals[referrer_id]["invited_users"]:
+                    referrals[referrer_id]["invited_users"].append({
+                        "id": uid,
+                        "time_joined": int(time.time()),
+                        "status": "pending"
+                    })
+                    save_data(REFERRAL_FILE, referrals)
+                    try:
+                        bot.send_message(referrer_id, f"🔔 **Thông báo:** Người dùng `{uid}` vừa vào bot qua link của bạn. Điểm sẽ được cộng sau 1 giờ nếu họ hoạt động!", parse_mode="Markdown")
+                    except: pass
     
     text = """```
 ╭─────────────⭓
@@ -349,6 +386,88 @@ def send_welcome(message):
         text += "\n👑 *Admin:* Gõ `/adhelp` để xem lệnh quản lý."
         
     bot.reply_to(message, text, parse_mode="Markdown")
+
+# --- LỆNH CHO NGƯỜI DÙNG ---
+@bot.message_handler(commands=['gioithieu', 'ref'])
+def handle_referral(message):
+    uid = str(message.from_user.id)
+    bot_username = bot.get_me().username
+    ref_link = f"https://t.me/{bot_username}?start={uid}"
+    
+    user_ref = referrals.get(uid, {"count": 0})
+    count = user_ref.get("count", 0)
+    req = ref_config["required"]
+    
+    txt = f"""🎁 **CHƯƠNG TRÌNH GIỚI THIỆU**
+───────────────
+🔗 Link của bạn: `{ref_link}`
+👥 Đã giới thiệu: `{count}/{req}` người
+🎁 Phần thưởng: `{ref_config['reward_days']} ngày VIP`
+
+⚠️ **Điều kiện:** Người được mời phải /getkey và dùng bot ít nhất 1 giờ mới được tính điểm.
+"""
+    bot.reply_to(message, txt, parse_mode="Markdown")
+
+# --- LỆNH CHO ADMIN THIẾT LẬP ---
+@bot.message_handler(commands=['soluong'])
+def set_ref_config(message):
+    if not is_admin(message.from_user.id): return
+    args = message.text.split()
+    if len(args) < 3: 
+        return bot.reply_to(message, "❌ Sử dụng: `/soluong [số người] [số ngày vip]`")
+    
+    ref_config["required"] = int(args[1])
+    ref_config["reward_days"] = int(args[2])
+    save_data(REF_CONFIG_FILE, ref_config)
+    bot.reply_to(message, f"✅ Đã cập nhật: Giới thiệu `{args[1]}` người nhận `{args[2]}` ngày VIP.")
+
+# --- LỆNH ADMIN XEM THỐNG KÊ ---
+@bot.message_handler(commands=['refstats'])
+def admin_ref_stats(message):
+    if not is_admin(message.from_user.id): return
+    total_ref = sum(u.get('count', 0) for u in referrals.values())
+    txt = f"📊 **THỐNG KÊ GIỚI THIỆU**\n- Tổng lượt ref thành công: `{total_ref}`\n- Số người đang tham gia: `{len(referrals)}`"
+    bot.reply_to(message, txt, parse_mode="Markdown")
+
+def referral_check_worker():
+    while True:
+        now = int(time.time())
+        changed = False
+        for referrer_id, data in referrals.items():
+            for invitee in data.get("invited_users", []):
+                if invitee["status"] == "pending":
+                    # Điều kiện 1: Đã quá 1 giờ (3600s)
+                    if (now - invitee["time_joined"]) >= 3600:
+                        # Điều kiện 2: Đã từng Getkey (có trong allowed_users hoặc user_keys)
+                        if invitee["id"] in allowed_users or invitee["id"] in user_keys:
+                            invitee["status"] = "completed"
+                            data["count"] += 1
+                            changed = True
+                            
+                            # Thông báo cộng điểm thành công
+                            try:
+                                bot.send_message(referrer_id, f"✅ **+1 Point!** Người dùng `{invitee['id']}` đã đủ điều kiện. Hiện tại: `{data['count']}/{ref_config['required']}`")
+                            except: pass
+                            
+                            # TỰ ĐỘNG TẶNG VIP KHI ĐỦ SỐ LƯỢNG
+                            if data["count"] >= ref_config["required"]:
+                                # Tránh tặng nhiều lần: kiểm tra số lượng đã nhận
+                                already_claimed = data.get("claimed_count", 0)
+                                if data["count"] // ref_config["required"] > already_claimed:
+                                    days = ref_config["reward_days"]
+                                    expiry = max(vip_users.get(referrer_id, now), now) + (days * 86400)
+                                    vip_users[referrer_id] = expiry
+                                    data["claimed_count"] = already_claimed + 1
+                                    save_data(VIP_FILE, vip_users)
+                                    try:
+                                        bot.send_message(referrer_id, f"💎 **CHÚC MỪNG!** Bạn đã giới thiệu đủ {ref_config['required']} người và được tặng `{days} ngày VIP`!", parse_mode="Markdown")
+                                    except: pass
+
+        if changed:
+            save_data(REFERRAL_FILE, referrals)
+        time.sleep(60) # Kiểm tra mỗi phút
+
+threading.Thread(target=referral_check_worker, daemon=True).start()
 
 @bot.message_handler(commands=['vip'])
 def user_redeem_vip(message):
