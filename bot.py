@@ -16,7 +16,7 @@ bot = telebot.TeleBot(TOKEN)
 # ================== CẤU HÌNH REPORT ==================
 REPORT_CHAT_ID = -1002542187639
 REPORT_TOPIC_ID = 11780
-CURRENT_VERSION = "7.0.1" # Thay đổi số này khi bạn phát hành bản mới
+CURRENT_VERSION = "7.0.2" # Thay đổi số này khi bạn phát hành bản mới
 UPDATE_API_URL = "https://laykey.x10.mx/update/config.json"
 YEUMONEY_TOKEN = "6ec3529d5d8cb18405369923670980ec155af75fb3a70c1c90c5a9d9ac25ceea"
 LINK4M_API_KEY = "66d85245cc8f2674de40add1"
@@ -834,7 +834,7 @@ def handle_buff(message):
     if len(args) < 2: 
         return bot.reply_to(message, "❌ **Nhập thiếu username!**", parse_mode="Markdown")
     
-    # Xử lý lấy Username sạch
+    # 1. Xử lý lấy Username sạch
     raw_user = args[1].replace("@", "")
     match = re.search(r'([a-zA-Z0-9._]{2,})', raw_user)
     if not match: 
@@ -843,53 +843,32 @@ def handle_buff(message):
 
     temp_msg = bot.send_message(message.chat.id, f"```⏳ Đang kiểm tra profile @{user}...```", parse_mode="Markdown")
     
-    # --- BẮT ĐẦU LOGIC RETRY ---
-    info_res = None
-    check_url = f"https://keyherlyswar.x10.mx/Apidocs/getinfotiktok.php?username={user}"
-    
-    for attempt in range(2): # Thử tối đa 2 lần
-        try:
-            response = requests.get(check_url, timeout=20)
-            if response.status_code == 200:
-                info_res = response.json()
-                if "followerCount" in info_res:
-                    break # Nếu có dữ liệu thì thoát vòng lặp retry
-            print(f"Lần {attempt + 1} lỗi, đang thử lại...")
-            time.sleep(2) # Chờ 2 giây trước khi retry
-        except Exception:
-            if attempt == 1: # Nếu là lần cuối vẫn lỗi
-                return bot.edit_message_text("🚨 **Lỗi API:** Không thể kết nối sau 2 lần thử!", message.chat.id, temp_msg.message_id)
-            time.sleep(2)
-
-    if not info_res or "followerCount" not in info_res:
-        return bot.edit_message_text("❌ **Không tìm thấy người dùng (API Error)!**", message.chat.id, temp_msg.message_id)
-    
-    # --- TIẾP TỤC LOGIC BUFF ---
     try:
+        # BƯỚC 1: Check thông tin và Follower hiện tại
+        check_url = f"https://keyherlyswar.x10.mx/Apidocs/getinfotiktok.php?username={user}"
+        info_res = requests.get(check_url, timeout=20).json()
+        
+        if "followerCount" not in info_res:
+            return bot.edit_message_text("❌ **Không tìm thấy người dùng!**", message.chat.id, temp_msg.message_id)
+        
         follow_before = info_res.get("followerCount", 0)
         nickname = info_res.get("nickname", user)
+        # Lấy AVATAR thật của người dùng
         user_avatar = info_res.get("avatarLarger") or info_res.get("avatarMedium") or "https://i.imgur.com/9p6ZiSb.png"
 
+        # BƯỚC 2: Gọi lệnh Buff
         bot.edit_message_text(f"```🚀 Đang buff cho {nickname}...```", message.chat.id, temp_msg.message_id, parse_mode="Markdown")
-        
-        # Gọi lệnh Buff (Cũng thêm retry cho lệnh buff nếu cần)
         buff_res = requests.get(f"https://liggdzut.x10.mx/fl.php?fl={user}&key=liggdzut", timeout=60).json()
         
         if buff_res.get("status") == "success":
+            # BƯỚC 3: Nghỉ 12 giây để TikTok cập nhật số liệu
             bot.edit_message_text(f"```⏳ Chờ hệ thống cập nhật (12s)...```", message.chat.id, temp_msg.message_id, parse_mode="Markdown")
             time.sleep(12)
             
-            # Check lại sau khi buff (Cũng dùng retry)
-            follow_after = follow_before # Mặc định nếu check lại lỗi
-            for _ in range(2):
-                try:
-                    res_after = requests.get(check_url, timeout=20).json()
-                    if "followerCount" in res_after:
-                        follow_after = res_after.get("followerCount", 0)
-                        break
-                except: continue
-
-            real_added = int(follow_after) - int(follow_before)
+            # BƯỚC 4: Check lại lần cuối để lấy số sau khi buff
+            info_after = requests.get(check_url, timeout=20).json()
+            follow_after = info_after.get("followerCount", 0)
+            real_added = follow_after - follow_before
             if real_added < 0: real_added = 0 
 
             text = f"""```
@@ -905,13 +884,14 @@ def handle_buff(message):
 │ 📢 Thấy tốt hãy mời bạn bè nhé!
 ╰─────────────⭓
 ```"""
+            # Xóa tin nhắn chờ và gửi ảnh AVATAR người dùng kèm bảng kết quả
             bot.delete_message(message.chat.id, temp_msg.message_id)
             bot.send_photo(message.chat.id, user_avatar, caption=text, parse_mode="Markdown")
         else:
             bot.edit_message_text(f"❌ **Lỗi:** {buff_res.get('message')}", message.chat.id, temp_msg.message_id)
 
     except Exception as e:
-        bot.edit_message_text(f"🚨 **Lỗi hệ thống:** {str(e)[:50]}", message.chat.id, temp_msg.message_id)
+        bot.edit_message_text(f"🚨 **Lỗi API:** Không thể lấy dữ liệu!", message.chat.id, temp_msg.message_id)
 
 worker_thread = threading.Thread(target=auto_treo_worker)
 worker_thread.daemon = True # Thread sẽ tự tắt khi bạn tắt script chính
