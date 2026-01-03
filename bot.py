@@ -16,7 +16,7 @@ bot = telebot.TeleBot(TOKEN)
 # ================== CẤU HÌNH REPORT ==================
 REPORT_CHAT_ID = -1002542187639
 REPORT_TOPIC_ID = 11780
-CURRENT_VERSION = "6.0.1" # Thay đổi số này khi bạn phát hành bản mới
+CURRENT_VERSION = "6.0.2" # Thay đổi số này khi bạn phát hành bản mới
 UPDATE_API_URL = "https://laykey.x10.mx/update/config.json"
 YEUMONEY_TOKEN = "6ec3529d5d8cb18405369923670980ec155af75fb3a70c1c90c5a9d9ac25ceea"
 LINK4M_API_KEY = "66d85245cc8f2674de40add1"
@@ -767,56 +767,73 @@ def handle_verify(message):
 
 # ================== LỆNH BUFF VIEW & LIKE (YÊU CẦU KEY) ==================
 
+import re
+import time
+import requests
+
 @bot.message_handler(commands=['view', 'like'])
 def handle_view_like(message):
     uid = str(message.from_user.id)
     
-    # 1. Kiểm tra trạng thái bảo trì
+    # 1. Kiểm tra trạng thái bảo trì (Admin luôn được phép)
     if not BOT_STATUS and not is_admin(uid): 
-        return bot.reply_to(message, "⚠️ **Hệ thống đang bảo trì!**", parse_mode="Markdown")
+        return bot.reply_to(message, "```\n⚠️ HỆ THỐNG ĐANG BẢO TRÌ\n```", parse_mode="Markdown")
     
-    # 2. Kiểm tra Key (Yêu cầu Getkey)
-    if uid not in allowed_users or int(time.time()) > allowed_users[uid]:
-        return bot.reply_to(message, "⚠️ **Vui lòng /getkey để sử dụng lệnh này!**", parse_mode="Markdown")
+    # 2. Kiểm tra Quyền: Nếu là Admin thì không cần Check Key
+    if not is_admin(uid):
+        if uid not in allowed_users or int(time.time()) > allowed_users[uid]:
+            return bot.reply_to(message, "```\n⚠️ VUI LÒNG /GETKEY ĐỂ SỬ DỤNG\n```", parse_mode="Markdown")
     
-    # 3. Kiểm tra tham số (Link)
+    # 3. Kiểm tra tham số
     args = message.text.split()
     if len(args) < 2: 
         cmd = args[0]
-        return bot.reply_to(message, f"❌ **Thiếu link!**\nSử dụng: `{cmd} [link_tiktok]`", parse_mode="Markdown")
+        return bot.reply_to(message, f"```\n❌ THIẾU LINK VIDEO\nSử dụng: {cmd} [link_tiktok]\n```", parse_mode="Markdown")
     
     video_url = args[1].strip()
     cmd_type = "view" if "/view" in args[0].lower() else "like"
-    
-    # --- THIẾT LẬP SỐ LƯỢNG TĂNG THEO LOẠI ---
     buff_amount = "250" if cmd_type == "view" else "10"
     
-    # Gửi tin nhắn chờ
-    temp_msg = bot.send_message(message.chat.id, f"⏳ **Đang gửi yêu cầu Buff {cmd_type.upper()}...**", parse_mode="Markdown")
+    temp_msg = bot.send_message(message.chat.id, f"```\n⏳ Đang gửi yêu cầu buff {cmd_type.upper()}...\n```", parse_mode="Markdown")
     
     try:
-        # Gọi API PHP (id=view hoặc id=like)
-        api_endpoint = f"https://laykey.x10.mx/view.php?link={video_url}&id={cmd_type}"
+        # Gọi API PHP
+        api_endpoint = f"[https://laykey.x10.mx/view.php?link=](https://laykey.x10.mx/view.php?link=){video_url}&id={cmd_type}"
         r = requests.get(api_endpoint, timeout=45).json()
         
         if r.get("status") == "success":
-            # Nếu thành công
-            res_text = (
-                f"✅ **BUFF {cmd_type.upper()} THÀNH CÔNG**\n"
-                f"───────────────\n"
-                f"👤 Nick: `{message.from_user.first_name}`\n"
-                f"✨ Tăng: `+{buff_amount}` {cmd_type.capitalize()}\n"
-                f"📦 Order ID: `{r.get('order_id')}`\n"
-                f"⏳ Hồi chiêu: `{r.get('next_wait') // 60} phút`"
-            )
+            # Giao diện thành công
+            res_text = f"""```
+╭─────────────⭓
+│ ✅ BUFF {cmd_type.upper()} XONG
+├─────────────⭓
+│ 👤 User: {message.from_user.first_name}
+│ ✨ Tăng: +{buff_amount} {cmd_type.capitalize()}
+│ 📦 ID: {r.get('order_id', 'N/A')}
+│ ─────────────
+│ 💕 Cảm ơn bạn đã tin dùng!
+╰─────────────⭓
+```"""
             bot.edit_message_text(res_text, message.chat.id, temp_msg.message_id, parse_mode="Markdown")
         else:
-            # Xử lý lỗi (Hồi chiêu tiếng Pháp hoặc link sai)
+            # XỬ LÝ LỖI CHỜ (Hỗ trợ cả tiếng Pháp và tiếng Anh)
             msg_error = r.get("message", "Hệ thống bận")
-            bot.edit_message_text(f"❌ **Lỗi API:**\n`{msg_error}`", message.chat.id, temp_msg.message_id, parse_mode="Markdown")
+            # Tìm tất cả con số trong thông báo lỗi (phút, giây)
+            time_numbers = re.findall(r'(\d+)', msg_error)
+            
+            if ("attendez" in msg_error.lower() or "wait" in msg_error.lower()) and time_numbers:
+                if len(time_numbers) >= 2:
+                    m, s = time_numbers[0], time_numbers[1]
+                    wait_reply = f"```\n⏳ THÔNG BÁO HỒI CHIÊU:\n\nVui lòng đợi {m} phút {s} giây\nđể tiếp tục buff link này!\n```"
+                else:
+                    wait_reply = f"```\n⏳ THÔNG BÁO HỒI CHIÊU:\n\nVui lòng đợi {time_numbers[0]} giây nữa.\n```"
+                
+                bot.edit_message_text(wait_reply, message.chat.id, temp_msg.message_id, parse_mode="Markdown")
+            else:
+                bot.edit_message_text(f"```\n❌ LỖI: {msg_error}\n```", message.chat.id, temp_msg.message_id, parse_mode="Markdown")
             
     except Exception as e:
-        bot.edit_message_text(f"🚨 **Lỗi hệ thống:** Không thể kết nối tới API PHP!", message.chat.id, temp_msg.message_id, parse_mode="Markdown")
+        bot.edit_message_text("```\n🚨 LỖI: KHÔNG THỂ KẾT NỐI API\n```", message.chat.id, temp_msg.message_id, parse_mode="Markdown")
 
 # ========================================================================
 
