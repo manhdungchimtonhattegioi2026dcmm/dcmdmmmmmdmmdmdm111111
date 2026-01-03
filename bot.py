@@ -16,7 +16,7 @@ bot = telebot.TeleBot(TOKEN)
 # ================== CẤU HÌNH REPORT ==================
 REPORT_CHAT_ID = -1002542187639
 REPORT_TOPIC_ID = 11780
-CURRENT_VERSION = "7.0.0" # Thay đổi số này khi bạn phát hành bản mới
+CURRENT_VERSION = "7.0.1" # Thay đổi số này khi bạn phát hành bản mới
 UPDATE_API_URL = "https://laykey.x10.mx/update/config.json"
 YEUMONEY_TOKEN = "6ec3529d5d8cb18405369923670980ec155af75fb3a70c1c90c5a9d9ac25ceea"
 LINK4M_API_KEY = "66d85245cc8f2674de40add1"
@@ -202,76 +202,77 @@ import threading
 import time
 import requests
 
+import time
+import requests
+
 def auto_treo_worker():
-    print("--- Hệ thống Treo bắt đầu hoạt động ---")
+    print("--- 🔄 Hệ thống Treo Real-time (Fixed NoneType) bắt đầu ---")
+    
     while True:
         try:
             now = int(time.time())
-            # Duyệt qua bản sao của list để tránh lỗi "dictionary changed size"
-            for key_name, info in list(treo_list.items()):
-                # Ép kiểu dữ liệu để đảm bảo an toàn
-                expiry_treo = int(info.get('expiry_treo', 0))
-                last_buff = int(info.get('last_buff', 0))
-                delay = int(info.get('delay', 30))
-                target = info.get('target')
-                target_type = info.get('type')
-                owner_id = info.get('owner', 'N/A')
+            # Duyệt qua bản sao của danh sách treo để tránh lỗi thay đổi kích thước dict khi đang loop
+            items = list(treo_list.items())
+            
+            for key_name, info in items:
+                try:
+                    # Lấy dữ liệu an toàn
+                    target = info.get('target')
+                    if not target: 
+                        continue # Bỏ qua nếu target rỗng
+                        
+                    expiry_treo = int(info.get('expiry_treo', 0))
+                    last_buff = int(info.get('last_buff', 0))
+                    delay = int(info.get('delay', 30))
+                    target_type = info.get('type', 'follow')
 
-                # 1. Kiểm tra hết hạn treo
-                if now > expiry_treo:
-                    del treo_list[key_name]
-                    save_data(TREO_FILE, treo_list)
-                    continue
-                
-                # 2. Kiểm tra đến thời gian buff tiếp theo chưa
-                if now >= (last_buff + delay):
-                    success = False
-                    try:
-                        # Xử lý theo loại
+                    # 1. Kiểm tra hết hạn treo
+                    if now > expiry_treo:
+                        print(f"[-] Hết hạn treo: {target}")
+                        if key_name in treo_list:
+                            del treo_list[key_name]
+                            save_data(TREO_FILE, treo_list)
+                        continue
+                    
+                    # 2. Kiểm tra đến thời gian buff tiếp theo chưa
+                    if now >= (last_buff + delay):
+                        # Fix lỗi NoneType: Ép kiểu string trước khi replace
+                        u_name = str(target).replace("@", "").split("/")[-1].strip()
+                        check_url = f"https://laykey.x10.mx/infott.php?user={u_name}"
+                        success = False
+                        details = ""
+
+                        # --- LOGIC XỬ LÝ THEO LOẠI ---
                         if target_type == 'follow':
-                            u_name = target.replace("@", "").split("/")[-1]
-                            r = requests.get(f"https://liggdzut.x10.mx/fl.php?fl={u_name}&key=liggdzut", timeout=15).json()
-                            if r.get("status") == "success": success = True
-                        
-                        elif target_type in ['view', 'like']:
-                            r = requests.get(f"https://laykey.x10.mx/view.php?link={target}&id={target_type}", timeout=15).json()
-                            if r.get("status") == "success": success = True
-                        
-                        elif target_type == 'all':
-                            # Gọi API View & Like
-                            requests.get(f"https://laykey.x10.mx/view.php?link={target}&id=view", timeout=10)
-                            requests.get(f"https://laykey.x10.mx/view.php?link={target}&id=like", timeout=10)
-                            # Tách username từ link để gọi Follow
-                            if "@" in target:
-                                u_name = target.split("@")[-1].split("/")[0]
-                                requests.get(f"https://liggdzut.x10.mx/fl.php?fl={u_name}&key=liggdzut", timeout=10)
-                            success = True
-
-                        if success:
-                            # 1. Khởi tạo nội dung chi tiết dựa trên loại dịch vụ
-                            if target_type == 'follow':
-                                # Giả sử bạn lấy được follow_before và follow_after từ API (nếu có)
-                                # Nếu API không trả về, bạn có thể để trống hoặc lấy từ một hàm check sub
-                                fb = info.get('follow_before', 'lỗi') 
-                                fa = info.get('follow_after', 'lỗi')
-                                real = info.get('real_added', '15') # Mặc định hoặc lấy từ API
+                            # Bước A: Check trước
+                            res_pre = requests.get(check_url, timeout=15).json()
+                            fb = res_pre.get("followers", 0)
+                            
+                            # Bước B: Buff
+                            buff_res = requests.get(f"https://liggdzut.x10.mx/fl.php?fl={u_name}&key=liggdzut", timeout=30).json()
+                            
+                            if buff_res.get("status") == "success":
+                                # Bước C: Nghỉ chờ cập nhật (TikTok delay số liệu)
+                                time.sleep(12) 
+                                res_post = requests.get(check_url, timeout=15).json()
+                                fa = res_post.get("followers", 0)
+                                real_added = int(fa) - int(fb)
+                                if real_added < 0: real_added = 0
                                 
                                 details = (f"│ 🔹 Trước: <b>{fb}</b>\n"
-                                        f"│ 🔸 Sau: <b>{fa}</b>\n"
-                                        f"│ ✨ Thực tăng: <b>+{real} Follow</b>")
-                                        
-                            elif target_type == 'view':
-                                details = f"│ ⚡ Trạng thái: <b>+250 VIEW</b>"
-                                
-                            elif target_type == 'like':
-                                details = f"│ ⚡ Trạng thái: <b>+10 LIKE</b>"
-                                
-                            elif target_type == 'all':
-                                details = (f"│ 📺 View: <b>+250</b>\n"
-                                        f"│ ❤️ Like: <b>+10</b>\n"
-                                        f"│ 👤 Follow: <b>Đã gửi yêu cầu</b>")
+                                           f"│ 🔸 Sau: <b>{fa}</b>\n"
+                                           f"│ ✨ Thực tăng: <b>+{real_added} Follow</b>")
+                                success = True
 
-                            # 2. Xây dựng cấu trúc tin nhắn HTML chuyên nghiệp
+                        elif target_type in ['view', 'like']:
+                            r = requests.get(f"https://laykey.x10.mx/view.php?link={target}&id={target_type}", timeout=15).json()
+                            if r.get("status") == "success":
+                                amount = "250 VIEW" if target_type == 'view' else "10 LIKE"
+                                details = f"│ ⚡ Trạng thái: <b>+{amount}</b>"
+                                success = True
+
+                        # --- GỬI BÁO CÁO TELEGRAM ---
+                        if success:
                             html_msg = (
                                 f"<b>🔄 [ AUTO REPORT SYSTEM ]</b>\n"
                                 f"<code>────────────────────────</code>\n"
@@ -283,27 +284,29 @@ def auto_treo_worker():
                                 f"<code>────────────────────────</code>\n"
                                 f"✅ <b>Trạng thái:</b> <i>Hoàn thành chu kỳ!</i>"
                             )
-
-                            # 3. Gửi tin nhắn với parse_mode="HTML"
+                            
                             bot.send_message(
                                 REPORT_CHAT_ID, 
                                 html_msg, 
                                 message_thread_id=REPORT_TOPIC_ID, 
                                 parse_mode="HTML",
-                                disable_web_page_preview=True # Tắt xem trước link cho gọn
+                                disable_web_page_preview=True
                             )
                             
-                            # Cập nhật thời gian buff cuối cùng
-                            treo_list[key_name]['last_buff'] = now
+                            # Cập nhật thời gian buff cuối
+                            treo_list[key_name]['last_buff'] = int(time.time())
                             save_data(TREO_FILE, treo_list)
 
-                    except Exception as api_err:
-                        print(f"Lỗi gọi API cho {target}: {api_err}")
+                except Exception as inner_e:
+                    print(f"Lỗi xử lý mục {key_name}: {inner_e}")
+                    continue
+
+            # Nghỉ ngắn để giảm tải CPU
+            time.sleep(5)
 
         except Exception as e:
-            print(f"Lỗi vòng lặp worker: {e}")
-        
-        time.sleep(15) # Nghỉ 15s trước khi quét lại toàn bộ danh sách
+            print(f"Lỗi Worker nghiêm trọng: {e}")
+            time.sleep(10)
 
 # ================== ADMIN COMMANDS ==================
 def is_admin(uid): return str(uid) == str(ADMIN_ID)
@@ -831,7 +834,7 @@ def handle_buff(message):
     if len(args) < 2: 
         return bot.reply_to(message, "❌ **Nhập thiếu username!**", parse_mode="Markdown")
     
-    # 1. Xử lý lấy Username sạch
+    # Xử lý lấy Username sạch
     raw_user = args[1].replace("@", "")
     match = re.search(r'([a-zA-Z0-9._]{2,})', raw_user)
     if not match: 
@@ -840,32 +843,53 @@ def handle_buff(message):
 
     temp_msg = bot.send_message(message.chat.id, f"```⏳ Đang kiểm tra profile @{user}...```", parse_mode="Markdown")
     
+    # --- BẮT ĐẦU LOGIC RETRY ---
+    info_res = None
+    check_url = f"https://keyherlyswar.x10.mx/Apidocs/getinfotiktok.php?username={user}"
+    
+    for attempt in range(2): # Thử tối đa 2 lần
+        try:
+            response = requests.get(check_url, timeout=20)
+            if response.status_code == 200:
+                info_res = response.json()
+                if "followerCount" in info_res:
+                    break # Nếu có dữ liệu thì thoát vòng lặp retry
+            print(f"Lần {attempt + 1} lỗi, đang thử lại...")
+            time.sleep(2) # Chờ 2 giây trước khi retry
+        except Exception:
+            if attempt == 1: # Nếu là lần cuối vẫn lỗi
+                return bot.edit_message_text("🚨 **Lỗi API:** Không thể kết nối sau 2 lần thử!", message.chat.id, temp_msg.message_id)
+            time.sleep(2)
+
+    if not info_res or "followerCount" not in info_res:
+        return bot.edit_message_text("❌ **Không tìm thấy người dùng (API Error)!**", message.chat.id, temp_msg.message_id)
+    
+    # --- TIẾP TỤC LOGIC BUFF ---
     try:
-        # BƯỚC 1: Check thông tin và Follower hiện tại
-        check_url = f"https://keyherlyswar.x10.mx/Apidocs/getinfotiktok.php?username={user}"
-        info_res = requests.get(check_url, timeout=20).json()
-        
-        if "followerCount" not in info_res:
-            return bot.edit_message_text("❌ **Không tìm thấy người dùng!**", message.chat.id, temp_msg.message_id)
-        
         follow_before = info_res.get("followerCount", 0)
         nickname = info_res.get("nickname", user)
-        # Lấy AVATAR thật của người dùng
         user_avatar = info_res.get("avatarLarger") or info_res.get("avatarMedium") or "https://i.imgur.com/9p6ZiSb.png"
 
-        # BƯỚC 2: Gọi lệnh Buff
         bot.edit_message_text(f"```🚀 Đang buff cho {nickname}...```", message.chat.id, temp_msg.message_id, parse_mode="Markdown")
+        
+        # Gọi lệnh Buff (Cũng thêm retry cho lệnh buff nếu cần)
         buff_res = requests.get(f"https://liggdzut.x10.mx/fl.php?fl={user}&key=liggdzut", timeout=60).json()
         
         if buff_res.get("status") == "success":
-            # BƯỚC 3: Nghỉ 12 giây để TikTok cập nhật số liệu
             bot.edit_message_text(f"```⏳ Chờ hệ thống cập nhật (12s)...```", message.chat.id, temp_msg.message_id, parse_mode="Markdown")
             time.sleep(12)
             
-            # BƯỚC 4: Check lại lần cuối để lấy số sau khi buff
-            info_after = requests.get(check_url, timeout=20).json()
-            follow_after = info_after.get("followerCount", 0)
-            real_added = follow_after - follow_before
+            # Check lại sau khi buff (Cũng dùng retry)
+            follow_after = follow_before # Mặc định nếu check lại lỗi
+            for _ in range(2):
+                try:
+                    res_after = requests.get(check_url, timeout=20).json()
+                    if "followerCount" in res_after:
+                        follow_after = res_after.get("followerCount", 0)
+                        break
+                except: continue
+
+            real_added = int(follow_after) - int(follow_before)
             if real_added < 0: real_added = 0 
 
             text = f"""```
@@ -881,19 +905,16 @@ def handle_buff(message):
 │ 📢 Thấy tốt hãy mời bạn bè nhé!
 ╰─────────────⭓
 ```"""
-            # Xóa tin nhắn chờ và gửi ảnh AVATAR người dùng kèm bảng kết quả
             bot.delete_message(message.chat.id, temp_msg.message_id)
             bot.send_photo(message.chat.id, user_avatar, caption=text, parse_mode="Markdown")
         else:
             bot.edit_message_text(f"❌ **Lỗi:** {buff_res.get('message')}", message.chat.id, temp_msg.message_id)
 
     except Exception as e:
-        bot.edit_message_text(f"🚨 **Lỗi API:** Không thể lấy dữ liệu!", message.chat.id, temp_msg.message_id)
+        bot.edit_message_text(f"🚨 **Lỗi hệ thống:** {str(e)[:50]}", message.chat.id, temp_msg.message_id)
 
 worker_thread = threading.Thread(target=auto_treo_worker)
 worker_thread.daemon = True # Thread sẽ tự tắt khi bạn tắt script chính
 worker_thread.start()
 
-
 bot.infinity_polling()
-
