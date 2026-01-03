@@ -16,7 +16,7 @@ bot = telebot.TeleBot(TOKEN)
 # ================== CẤU HÌNH REPORT ==================
 REPORT_CHAT_ID = -1002542187639
 REPORT_TOPIC_ID = 11780
-CURRENT_VERSION = "6.0.0" # Thay đổi số này khi bạn phát hành bản mới
+CURRENT_VERSION = "6.0.1" # Thay đổi số này khi bạn phát hành bản mới
 UPDATE_API_URL = "https://laykey.x10.mx/update/config.json"
 YEUMONEY_TOKEN = "6ec3529d5d8cb18405369923670980ec155af75fb3a70c1c90c5a9d9ac25ceea"
 LINK4M_API_KEY = "66d85245cc8f2674de40add1"
@@ -208,32 +208,34 @@ def auto_treo_worker():
     while True:
         try:
             now = int(time.time())
-            # Duyệt qua bản sao của list để tránh lỗi "dictionary changed size"
             for key_name, info in list(treo_list.items()):
+                # 1. Lấy dữ liệu an toàn bằng .get() và kiểm tra None
+                target = info.get('target')
+                if target is None:
+                    print(f"⚠️ Bỏ qua {key_name}: Target bị rỗng (None)")
+                    continue
+
                 expiry_treo = int(info.get('expiry_treo', 0))
                 last_buff = int(info.get('last_buff', 0))
                 delay = int(info.get('delay', 30))
-                target = info.get('target')
                 target_type = info.get('type')
 
-                # 1. Kiểm tra hết hạn treo
+                # 2. Kiểm tra hết hạn treo
                 if now > expiry_treo:
                     del treo_list[key_name]
                     save_data(TREO_FILE, treo_list)
                     continue
                 
-                # 2. Kiểm tra đến thời gian buff tiếp theo chưa
+                # 3. Kiểm tra đến thời gian buff tiếp theo chưa
                 if now >= (last_buff + delay):
                     success = False
                     details = ""
                     
                     try:
-                        # --- BẮT ĐẦU XỬ LÝ LOGIC CHECK VÀ BUFF ---
-                        
-                        # Lấy username sạch từ target (hỗ trợ cả link hoặc @username)
-                        u_name = target.replace("@", "").split("/")[-1].split("?")[0]
+                        # Xử lý lấy Username sạch (Đảm bảo target là string)
+                        u_name = str(target).replace("@", "").split("/")[-1].split("?")[0]
 
-                        # BƯỚC A: Check số follower TRƯỚC khi buff (Nếu là loại follow hoặc all)
+                        # BƯỚC A: Check số follower TRƯỚC (Giống lệnh /fl)
                         f_before = 0
                         if target_type in ['follow', 'all']:
                             try:
@@ -242,7 +244,7 @@ def auto_treo_worker():
                                 f_before = info_res.get("followerCount", 0)
                             except: f_before = "N/A"
 
-                        # BƯỚC B: Gọi API Buff tương ứng
+                        # BƯỚC B: Gọi API Buff
                         if target_type == 'follow':
                             r = requests.get(f"https://liggdzut.x10.mx/fl.php?fl={u_name}&key=liggdzut", timeout=20).json()
                             if r.get("status") == "success": success = True
@@ -252,34 +254,32 @@ def auto_treo_worker():
                             if r.get("status") == "success": success = True
                         
                         elif target_type == 'all':
-                            # Buff tổng hợp
                             requests.get(f"https://laykey.x10.mx/view.php?link={target}&id=view", timeout=10)
                             requests.get(f"https://laykey.x10.mx/view.php?link={target}&id=like", timeout=10)
                             r_fl = requests.get(f"https://liggdzut.x10.mx/fl.php?fl={u_name}&key=liggdzut", timeout=10).json()
                             if r_fl.get("status") == "success": success = True
 
-                        # BƯỚC C: Check số follower SAU khi buff (Nếu thành công và cần số liệu)
+                        # BƯỚC C: Check số follower SAU và gửi Report
                         if success:
                             if target_type in ['follow', 'all']:
-                                # Nghỉ 10s để TikTok cập nhật database trước khi check lại
-                                time.sleep(10) 
+                                time.sleep(12) # Đợi TikTok cập nhật
                                 try:
                                     info_after = requests.get(f"https://keyherlyswar.x10.mx/Apidocs/getinfotiktok.php?username={u_name}", timeout=15).json()
                                     f_after = info_after.get("followerCount", 0)
-                                    real_added = int(f_after) - int(f_before) if isinstance(f_before, int) else "N/A"
+                                    # Tính toán thực tăng
+                                    try: real_added = int(f_after) - int(f_before)
+                                    except: real_added = 0
+                                    if real_added < 0: real_added = 0
                                 except:
-                                    f_after = "Đang cập nhật"; real_added = "N/A"
+                                    f_after = "Cập nhật chậm"; real_added = "N/A"
 
                                 details = (f"│ 🔹 Trước: <b>{f_before}</b>\n"
                                            f"│ 🔸 Sau: <b>{f_after}</b>\n"
                                            f"│ ✨ Thực tăng: <b>+{real_added} Follow</b>")
-                            
-                            elif target_type == 'view':
-                                details = f"│ ⚡ Trạng thái: <b>+250 VIEW</b>"
-                            elif target_type == 'like':
-                                details = f"│ ⚡ Trạng thái: <b>+10 LIKE</b>"
+                            else:
+                                details = f"│ ⚡ Trạng thái: <b>Hoàn tất +{target_type.upper()}</b>"
 
-                            # Gửi báo cáo vào nhóm (Report)
+                            # Gửi tin nhắn Report HTML
                             html_msg = (
                                 f"<b>🔄 [ AUTO REPORT SYSTEM ]</b>\n"
                                 f"<code>────────────────────────</code>\n"
@@ -293,14 +293,11 @@ def auto_treo_worker():
                             )
 
                             bot.send_message(
-                                REPORT_CHAT_ID, 
-                                html_msg, 
+                                REPORT_CHAT_ID, html_msg, 
                                 message_thread_id=REPORT_TOPIC_ID, 
-                                parse_mode="HTML",
-                                disable_web_page_preview=True
+                                parse_mode="HTML", disable_web_page_preview=True
                             )
                             
-                            # Cập nhật thời gian buff cuối cùng vào database
                             treo_list[key_name]['last_buff'] = int(time.time())
                             save_data(TREO_FILE, treo_list)
 
@@ -308,9 +305,9 @@ def auto_treo_worker():
                         print(f"Lỗi treo cho {target}: {api_err}")
 
         except Exception as e:
-            print(f"Lỗi worker: {e}")
+            print(f"Lỗi Worker hệ thống: {e}")
         
-        time.sleep(15) # Nghỉ 15s trước khi quét lại danh sách
+        time.sleep(15)
 
 # ================== ADMIN COMMANDS ==================
 def is_admin(uid): return str(uid) == str(ADMIN_ID)
