@@ -16,7 +16,7 @@ bot = telebot.TeleBot(TOKEN)
 # ================== CẤU HÌNH REPORT ==================
 REPORT_CHAT_ID = -1002542187639
 REPORT_TOPIC_ID = 11780
-CURRENT_VERSION = "8.1.2" # Thay đổi số này khi bạn phát hành bản mới
+CURRENT_VERSION = "8.1.4" # Thay đổi số này khi bạn phát hành bản mới
 UPDATE_API_URL = "https://laykey.x10.mx/update/config.json"
 CLICK1S_TOKEN = "b28cc2aee7d4b3d798fb63a5e59bd5f58ac81036"
 LINK4M_API_KEY = "66d85245cc8f2674de40add1"
@@ -916,5 +916,6 @@ def handle_buff(message):
 worker_thread = threading.Thread(target=auto_treo_worker)
 worker_thread.daemon = True # Thread sẽ tự tắt khi bạn tắt script chính
 worker_thread.start()
+
 
 bot.infinity_polling()
