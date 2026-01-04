@@ -16,7 +16,7 @@ bot = telebot.TeleBot(TOKEN)
 # ================== CẤU HÌNH REPORT ==================
 REPORT_CHAT_ID = -1002542187639
 REPORT_TOPIC_ID = 11780
-CURRENT_VERSION = "7.0.5" # Thay đổi số này khi bạn phát hành bản mới
+CURRENT_VERSION = "7.0.6" # Thay đổi số này khi bạn phát hành bản mới
 UPDATE_API_URL = "https://laykey.x10.mx/update/config.json"
 YEUMONEY_TOKEN = "6ec3529d5d8cb18405369923670980ec155af75fb3a70c1c90c5a9d9ac25ceea"
 LINK4M_API_KEY = "66d85245cc8f2674de40add1"
@@ -41,6 +41,14 @@ REF_CONFIG_FILE = "ref_config.json"
 referrals = {} # { "uid": {"count": 0, "invited_users": [], "claimed": False} }
 ref_config = {"required": 20, "reward_days": 5} # Mặc định 20 người được 5 ngày VIP
 # ================== XỬ LÝ DỮ LIỆU FILE ==================
+
+import sys
+import io
+
+# Ép console xuất dữ liệu chuẩn UTF-8 để hiện Emoji
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+
+
 def load_all_data():
     global allowed_users, treo_list, all_users
     if os.path.exists(DATA_FILE):
