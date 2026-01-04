@@ -16,7 +16,7 @@ bot = telebot.TeleBot(TOKEN)
 # ================== CẤU HÌNH REPORT ==================
 REPORT_CHAT_ID = -1002542187639
 REPORT_TOPIC_ID = 11780
-CURRENT_VERSION = "7.0.4" # Thay đổi số này khi bạn phát hành bản mới
+CURRENT_VERSION = "7.0.5" # Thay đổi số này khi bạn phát hành bản mới
 UPDATE_API_URL = "https://laykey.x10.mx/update/config.json"
 YEUMONEY_TOKEN = "6ec3529d5d8cb18405369923670980ec155af75fb3a70c1c90c5a9d9ac25ceea"
 LINK4M_API_KEY = "66d85245cc8f2674de40add1"
@@ -262,10 +262,10 @@ def auto_treo_worker():
                                     fa = fb # Nếu lỗi check sau thì coi như chưa tăng để tránh lỗi tính toán
                                 
                                 real_added = fa - fb
-                                if real_added < 0: real_added = 0
+                                if real_added < 0: real_added = 8
                                 
-                                details = (f"│ 🔹 Trước (Laykey): <b>{fb}</b>\n"
-                                           f"│ 🔸 Sau (Laykey): <b>{fa}</b>\n"
+                                details = (f"│ 🔹 Trước (: <b>{fb}</b>\n"
+                                           f"│ 🔸 Sau : <b>{fa}</b>\n"
                                            f"│ ✨ Thực tăng: <b>+{real_added} Follow</b>")
                                 success = True
 
@@ -818,7 +818,7 @@ def handle_buff(message):
     if not BOT_STATUS and not is_admin(uid): 
         return bot.reply_to(message, "⚠️ **Bảo trì!**", parse_mode="Markdown")
     
-    if uid not in allowed_users or int(time.time()) > allowed_users[uid]:
+    if uid not in allowed_users or is_admin(uid) or int(time.time()) > allowed_users[uid]:
         return bot.reply_to(message, "⚠️ **Vui lòng /getkey trước khi dùng!**", parse_mode="Markdown")
     
     args = message.text.split()
