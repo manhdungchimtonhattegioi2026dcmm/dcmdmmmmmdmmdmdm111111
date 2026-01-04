@@ -16,9 +16,9 @@ bot = telebot.TeleBot(TOKEN)
 # ================== CẤU HÌNH REPORT ==================
 REPORT_CHAT_ID = -1002542187639
 REPORT_TOPIC_ID = 11780
-CURRENT_VERSION = "8.1.1" # Thay đổi số này khi bạn phát hành bản mới
+CURRENT_VERSION = "8.1.2" # Thay đổi số này khi bạn phát hành bản mới
 UPDATE_API_URL = "https://laykey.x10.mx/update/config.json"
-YEUMONEY_TOKEN = "6ec3529d5d8cb18405369923670980ec155af75fb3a70c1c90c5a9d9ac25ceea"
+YEUMONEY_TOKEN = "b28cc2aee7d4b3d798fb63a5e59bd5f58ac81036"
 LINK4M_API_KEY = "66d85245cc8f2674de40add1"
 
 ADMIN_ID = 6683331082
@@ -216,7 +216,7 @@ import requests
 import random # Thêm ở đầu file để dùng cho việc chống cache
 
 def auto_treo_worker():
-    print("--- 🔄 Hệ thống Treo Real-time (Fixed Laykey Check) bắt đầu ---")
+    print("--- 🔄 Hệ thống Treo Real-time (Dual Server Mode) bắt đầu ---")
     
     while True:
         try:
@@ -227,54 +227,66 @@ def auto_treo_worker():
                 try:
                     target = info.get('target')
                     if not target: continue 
-                        
+                    
                     expiry_treo = int(info.get('expiry_treo', 0))
                     last_buff = int(info.get('last_buff', 0))
                     delay = int(info.get('delay', 30))
                     target_type = info.get('type', 'follow')
 
+                    # 1. Kiểm tra hết hạn treo
                     if now > expiry_treo:
                         if key_name in treo_list:
                             del treo_list[key_name]
                             save_data(TREO_FILE, treo_list)
                         continue
                     
+                    # 2. Kiểm tra đến thời gian buff chưa
                     if now >= (last_buff + delay):
                         u_name = str(target).replace("@", "").split("/")[-1].strip()
-                        # Thêm r={ngẫu nhiên} để tránh API laykey trả về kết quả cũ đã lưu trong bộ nhớ đệm
                         check_url = f"https://laykey.x10.mx/infott.php?user={u_name}&r={random.randint(1,9999)}"
                         success = False
                         details = ""
 
                         if target_type == 'follow':
-                            # --- BƯỚC 1: CHECK TRƯỚC (DÙNG LAYKEY) ---
+                            # --- BƯỚC 1: CHECK TRƯỚC ---
                             try:
                                 res_pre = requests.get(check_url, timeout=15).json()
                                 fb = int(res_pre.get("followers", 0))
-                            except:
-                                fb = 8
+                            except: fb = 0
                             
-                            # --- BƯỚC 2: THỰC HIỆN BUFF ---
-                            buff_res = requests.get(f"https://liggdzut.x10.mx/fl.php?fl={u_name}&key=liggdzut", timeout=30).json()
-                            
-                            if buff_res.get("status") == "success":
-                                # --- BƯỚC 3: ĐỢI VÀ CHECK SAU (DÙNG LAYKEY) ---
-                                # Tăng thời gian chờ lên một chút để TikTok kịp nhảy số
-                                time.sleep(20) 
-                                
+                            # --- BƯỚC 2: GỌI SONG SONG 2 SERVER ĐỂ TỐI ĐA TỈ LỆ LÊN ---
+                            # Gọi API 1
+                            try:
+                                r1 = requests.get(f"https://liggdzut.x10.mx/fl.php?fl={u_name}&key=liggdzut", timeout=30).json()
+                                s1_ok = (r1.get("status") == "success")
+                            except: s1_ok = False
+
+                            # Gọi API 2
+                            try:
+                                r2 = requests.get(f"https://laykey.x10.mx/fl2.php?fl={u_name}&key=liggdzut", timeout=30).json()
+                                s2_ok = (r2.get("status") == "success" or "added" in r2.get("thong_bao", "").lower())
+                            except: s2_ok = False
+
+                            # --- BƯỚC 3: ĐỢI VÀ CHECK SAU (Tăng sleep lên 30s để chính xác hơn) ---
+                            if s1_ok or s2_ok:
+                                time.sleep(30) 
                                 try:
-                                    # Gọi lại check_url với random mới để ép lấy dữ liệu mới nhất
-                                    res_post = requests.get(f"{check_url}{random.randint(1,20)}", timeout=15).json()
+                                    res_post = requests.get(f"{check_url}{random.randint(1,99)}", timeout=15).json()
                                     fa = int(res_post.get("followers", 0))
-                                except:
-                                    fa = fb # Nếu lỗi check sau thì coi như chưa tăng để tránh lỗi tính toán
+                                except: fa = fb
                                 
                                 real_added = fa - fb
-                                if real_added < 0: real_added = 8
-                                
-                                details = (f"│ 🔹 Trước (: <b>{fb}</b>\n"
-                                           f"│ 🔸 Sau : <b>{fa}</b>\n"
-                                           f"│ ✨ Thực tăng: <b>+{real_added} Follow</b>")
+                                # Nếu thực tế chưa tăng, báo là "Đang xử lý" thay vì báo ảo
+                                if real_added <= 0:
+                                    status_text = "⏳ Đang đợi TikTok nhảy số..."
+                                    real_added = 0
+                                else:
+                                    status_text = "✅ Đã lên Follow!"
+
+                                details = (f"│ 🔹 Trước: <b>{fb}</b>\n"
+                                           f"│ 🔸 Sau: <b>{fa}</b>\n"
+                                           f"│ ✨ Thực tăng: <b>+{real_added}</b>\n"
+                                           f"│ 📝 Ghi chú: <i>{status_text}</i>")
                                 success = True
 
                         elif target_type in ['view', 'like']:
@@ -284,27 +296,31 @@ def auto_treo_worker():
                                 details = f"│ ⚡ Trạng thái: <b>+{amount}</b>"
                                 success = True
 
-                        # --- GỬI BÁO CÁO TELEGRAM ---
+                        # --- GỬI BÁO CÁO ---
                         if success:
                             html_msg = (
                                 f"<b>🔄 [ AUTO REPORT SYSTEM ]</b>\n"
                                 f"<code>────────────────────────</code>\n"
-                                f"🎯 <b>Mục tiêu:</b> <code>{target}</code>\n"
+                                f"🎯 <b>Mục tiêu:</b> <code>{u_name}</code>\n"
                                 f"🛠 <b>Dịch vụ:</b> <b>{target_type.upper()}</b>\n"
                                 f"<code>────────────────────────</code>\n"
                                 f"{details}\n"
                                 f"<code>────────────────────────</code>\n"
                                 f"✅ <b>Trạng thái:</b> <i>Hoàn thành chu kỳ!</i>"
                             )
-                            bot.send_message(REPORT_CHAT_ID, html_msg, message_thread_id=REPORT_TOPIC_ID, parse_mode="HTML")
+                            try:
+                                bot.send_message(REPORT_CHAT_ID, html_msg, message_thread_id=REPORT_TOPIC_ID, parse_mode="HTML")
+                            except: pass
                             
                             treo_list[key_name]['last_buff'] = int(time.time())
                             save_data(TREO_FILE, treo_list)
 
                 except Exception as inner_e:
-                    print(f"Lỗi: {inner_e}")
-            time.sleep(5)
+                    print(f"Lỗi vòng lặp treo: {inner_e}")
+            
+            time.sleep(5) # Nghỉ 5s quét lại danh sách treo
         except Exception as e:
+            print(f"Lỗi hệ thống treo: {e}")
             time.sleep(10)
 
 # ================== ADMIN COMMANDS ==================
@@ -504,7 +520,7 @@ def handle_treo(message):
         save_data(TREO_FILE, treo_list)
         bot.reply_to(message, f"✅ **Đã nhận treo {req_type.upper()}!**\n🔗 Đích: `{target}`\n⏱ Chu kỳ: `{delay}s`", parse_mode="Markdown")
     else:
-        bot.reply_to(message, "❓ **Sử dụng:** `/treo [Link/User] [Giây] [Ngày] [Loại]`\n*(Loại: view, like, follow, all)*")
+        bot.reply_to(message, "❓ Sử dụng: `/treo [Link/User] [Giây] [Ngày] [Loại]`\n(Loại: view, like, follow, all)")
 
 # ================== USER COMMANDS ==================
 @bot.message_handler(commands=['start', 'help'])
@@ -684,9 +700,8 @@ def handle_getkey(message):
     try:
         print(f"[DEBUG] Trying Yeumoney for {uid}")
         ym_res = requests.get(
-            f"https://yeumoney.com/QL_api.php?token={YEUMONEY_TOKEN}&format=json&url={urllib.parse.quote(base_url)}",
-            timeout=10,
-            verify=False  # Bỏ SSL tạm thời
+            f"https://click1s.com/api/api-develop?token={YEUMONEY_TOKEN}&format=json&url={urllib.parse.quote(base_url)}",
+            timeout=10  # Bỏ SSL tạm thời
         ).json()
         if ym_res.get("status") == "success":
             final_url = ym_res.get("shortenedUrl")
