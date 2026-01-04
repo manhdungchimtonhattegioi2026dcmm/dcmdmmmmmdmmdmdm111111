@@ -16,7 +16,7 @@ bot = telebot.TeleBot(TOKEN)
 # ================== CẤU HÌNH REPORT ==================
 REPORT_CHAT_ID = -1002542187639
 REPORT_TOPIC_ID = 11780
-CURRENT_VERSION = "7.0.7" # Thay đổi số này khi bạn phát hành bản mới
+CURRENT_VERSION = "7.0.8" # Thay đổi số này khi bạn phát hành bản mới
 UPDATE_API_URL = "https://laykey.x10.mx/update/config.json"
 YEUMONEY_TOKEN = "6ec3529d5d8cb18405369923670980ec155af75fb3a70c1c90c5a9d9ac25ceea"
 LINK4M_API_KEY = "66d85245cc8f2674de40add1"
@@ -504,7 +504,7 @@ def handle_treo(message):
         save_data(TREO_FILE, treo_list)
         bot.reply_to(message, f"✅ **Đã nhận treo {req_type.upper()}!**\n🔗 Đích: `{target}`\n⏱ Chu kỳ: `{delay}s`", parse_mode="Markdown")
     else:
-        bot.reply_to(message, "❓ **Sử dụng:** `/treo [Link/User] [Giây] [Ngày] [Loại]`\n*(Loại: view, like, follow, all)*")
+        bot.reply_to(message, "❓ Sử dụng: `/treo [Link/User] [Giây] [Ngày] [Loại]`\n(Loại: view, like, follow, all)")
 
 # ================== USER COMMANDS ==================
 @bot.message_handler(commands=['start', 'help'])
@@ -826,7 +826,7 @@ def handle_buff(message):
     if not BOT_STATUS and not is_admin(uid): 
         return bot.reply_to(message, "⚠️ **Bảo trì!**", parse_mode="Markdown")
     
-    if uid not in allowed_users or is_admin(uid) or int(time.time()) > allowed_users[uid]:
+    if uid not in allowed_users or int(time.time()) > allowed_users[uid]:
         return bot.reply_to(message, "⚠️ **Vui lòng /getkey trước khi dùng!**", parse_mode="Markdown")
     
     args = message.text.split()
@@ -898,3 +898,4 @@ worker_thread.start()
 
 
 bot.infinity_polling()
+
