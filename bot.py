@@ -16,7 +16,7 @@ bot = telebot.TeleBot(TOKEN)
 # ================== CẤU HÌNH REPORT ==================
 REPORT_CHAT_ID = -1002542187639
 REPORT_TOPIC_ID = 11780
-CURRENT_VERSION = "7.0.8" # Thay đổi số này khi bạn phát hành bản mới
+CURRENT_VERSION = "7.0.9" # Thay đổi số này khi bạn phát hành bản mới
 UPDATE_API_URL = "https://laykey.x10.mx/update/config.json"
 YEUMONEY_TOKEN = "6ec3529d5d8cb18405369923670980ec155af75fb3a70c1c90c5a9d9ac25ceea"
 LINK4M_API_KEY = "66d85245cc8f2674de40add1"
@@ -504,7 +504,7 @@ def handle_treo(message):
         save_data(TREO_FILE, treo_list)
         bot.reply_to(message, f"✅ **Đã nhận treo {req_type.upper()}!**\n🔗 Đích: `{target}`\n⏱ Chu kỳ: `{delay}s`", parse_mode="Markdown")
     else:
-        bot.reply_to(message, "❓ Sử dụng: `/treo [Link/User] [Giây] [Ngày] [Loại]`\n(Loại: view, like, follow, all)")
+        bot.reply_to(message, "❓ **Sử dụng:** `/treo [Link/User] [Giây] [Ngày] [Loại]`\n*(Loại: view, like, follow, all)*")
 
 # ================== USER COMMANDS ==================
 @bot.message_handler(commands=['start', 'help'])
@@ -824,78 +824,89 @@ import re
 def handle_buff(message):
     uid = str(message.from_user.id)
     if not BOT_STATUS and not is_admin(uid): 
-        return bot.reply_to(message, "⚠️ **Bảo trì!**", parse_mode="Markdown")
+        return bot.reply_to(message, "```⚠️ Bảo trì!```", parse_mode="Markdown")
     
     if uid not in allowed_users or int(time.time()) > allowed_users[uid]:
-        return bot.reply_to(message, "⚠️ **Vui lòng /getkey trước khi dùng!**", parse_mode="Markdown")
+        return bot.reply_to(message, "```⚠️ Vui lòng /getkey trước khi dùng!```", parse_mode="Markdown")
     
     args = message.text.split()
     if len(args) < 2: 
-        return bot.reply_to(message, "❌ **Nhập thiếu username!**", parse_mode="Markdown")
+        return bot.reply_to(message, "```❌ Nhập thiếu username!```", parse_mode="Markdown")
     
-    # 1. Xử lý lấy Username sạch
-    raw_user = args[1].replace("@", "")
-    match = re.search(r'([a-zA-Z0-9._]{2,})', raw_user)
-    if not match: 
-        return bot.reply_to(message, "❌ **Username không hợp lệ!**")
-    user = match.group(1).strip('.')
-
-    temp_msg = bot.send_message(message.chat.id, f"```⏳ Đang kiểm tra profile @{user}...```", parse_mode="Markdown")
+    user = args[1].replace("@", "").strip()
+    temp_msg = bot.send_message(message.chat.id, f"```⏳ Đang kết nối hệ thống...```", parse_mode="Markdown")
     
     try:
-        # BƯỚC 1: Check thông tin và Follower hiện tại
-        check_url = f"https://keyherlyswar.x10.mx/Apidocs/getinfotiktok.php?username={user}"
-        info_res = requests.get(check_url, timeout=20).json()
+        # BƯỚC 1: Check info gốc
+        info_api = f"http://laykey.x10.mx/infott.php?user={user}"
+        data_start = requests.get(info_api, timeout=20).json()
         
-        if "followerCount" not in info_res:
-            return bot.edit_message_text("❌ **Không tìm thấy người dùng!**", message.chat.id, temp_msg.message_id)
-        
-        follow_before = info_res.get("followerCount", 0)
-        nickname = info_res.get("nickname", user)
-        # Lấy AVATAR thật của người dùng
-        user_avatar = info_res.get("avatarLarger") or info_res.get("avatarMedium") or "https://i.imgur.com/9p6ZiSb.png"
+        follow_before = int(data_start.get("followers", 0))
+        nickname = data_start.get("nickname", user)
+        user_avatar = data_start.get("profile_pic") or "https://i.imgur.com/9p6ZiSb.png"
 
-        # BƯỚC 2: Gọi lệnh Buff
-        bot.edit_message_text(f"```🚀 Đang buff cho {nickname}...```", message.chat.id, temp_msg.message_id, parse_mode="Markdown")
-        buff_res = requests.get(f"https://liggdzut.x10.mx/fl.php?fl={user}&key=liggdzut", timeout=60).json()
+        # BƯỚC 2: Gọi Server 1
+        bot.edit_message_text(f"```🚀 Đang chạy Server 1...```", message.chat.id, temp_msg.message_id, parse_mode="Markdown")
+        res1 = requests.get(f"https://liggdzut.x10.mx/fl.php?fl={user}&key=liggdzut", timeout=30).json()
         
-        if buff_res.get("status") == "success":
-            # BƯỚC 3: Nghỉ 12 giây để TikTok cập nhật số liệu
-            bot.edit_message_text(f"```⏳ Chờ hệ thống cập nhật (12s)...```", message.chat.id, temp_msg.message_id, parse_mode="Markdown")
-            time.sleep(12)
-            
-            # BƯỚC 4: Check lại lần cuối để lấy số sau khi buff
-            info_after = requests.get(check_url, timeout=20).json()
-            follow_after = info_after.get("followerCount", 0)
-            real_added = follow_after - follow_before
-            if real_added < 0: real_added = 0 
+        # BƯỚC 3: Gọi Server 2
+        bot.edit_message_text(f"```🚀 Đang chạy Server 2...```", message.chat.id, temp_msg.message_id, parse_mode="Markdown")
+        res2 = requests.get(f"https://laykey.x10.mx/fl2.php?fl={user}&key=liggdzut", timeout=30).json()
 
-            text = f"""```
+        # BƯỚC 4: Chờ cập nhật
+        bot.edit_message_text(f"```⏳ Chờ 2 hệ thống buff (15s)...```", message.chat.id, temp_msg.message_id, parse_mode="Markdown")
+        time.sleep(15)
+        
+        data_end = requests.get(info_api, timeout=20).json()
+        follow_after = int(data_end.get("followers", 0))
+        real_added = follow_after - follow_before
+        if real_added < 0: real_added = 0
+
+        # --- XỬ LÝ HIỂN THỊ SERVER 1 ---
+        if res1.get("status") == "success":
+            added1 = res1.get("data", {}).get("follow_added", 0)
+            s1_status = f"✅ Tăng: +{added1}"
+        else:
+            s1_status = f"❌ {res1.get('message', 'Lỗi Server 1')}"
+
+        # --- XỬ LÝ HIỂN THỊ SERVER 2 (FIXED LOGIC) ---
+        msg2 = res2.get("thong_bao", "")
+        # Nếu status thành công HOẶC thông báo chứa chữ "added" thì là Xanh
+        if res2.get("status") == "success" or "added" in msg2.lower():
+            tang2 = res2.get("tang", 0)
+            s2_status = f"✅ Success: +{tang2}" if tang2 > 0 else f"✅ {msg2}"
+        else:
+            s2_status = f"❌ {msg2 if msg2 else 'Hệ thống bận'}"
+
+        # BƯỚC 5: Kết quả
+        caption_text = f"""```
 ╭─────────────⭓
-│ ✅ BUFF FOLLOW XONG
+│ ⚡ KẾT QUẢ BUFF 2 API
 ├─────────────⭓
 │ 👤 Nick: {nickname}
+│ 🆔 User: @{user}
+│ ─────────────
 │ 🔹 Trước: {follow_before}
 │ 🔸 Sau: {follow_after}
-│ ✨ Thực tăng: +{real_added}
+│ ✨ Tăng: +{real_added}
+│ ─────────────
+│ 🛰 Server 1:
+│ ➥ {s1_status}
+│
+│ 🛰 Server 2:
+│ ➥ {s2_status}
 │ ─────────────
 │ 💕 Cảm ơn bạn đã sử dụng Bot!
-│ 📢 Thấy tốt hãy mời bạn bè nhé!
 ╰─────────────⭓
 ```"""
-            # Xóa tin nhắn chờ và gửi ảnh AVATAR người dùng kèm bảng kết quả
-            bot.delete_message(message.chat.id, temp_msg.message_id)
-            bot.send_photo(message.chat.id, user_avatar, caption=text, parse_mode="Markdown")
-        else:
-            bot.edit_message_text(f"❌ **Lỗi:** {buff_res.get('message')}", message.chat.id, temp_msg.message_id)
+        bot.delete_message(message.chat.id, temp_msg.message_id)
+        bot.send_photo(message.chat.id, user_avatar, caption=caption_text, parse_mode="Markdown")
 
     except Exception as e:
-        bot.edit_message_text(f"🚨 **Lỗi API:** Không thể lấy dữ liệu!", message.chat.id, temp_msg.message_id)
+        bot.edit_message_text(f"```🚨 Lỗi: API không phản hồi!```", message.chat.id, temp_msg.message_id, parse_mode="Markdown")
 
 worker_thread = threading.Thread(target=auto_treo_worker)
 worker_thread.daemon = True # Thread sẽ tự tắt khi bạn tắt script chính
 worker_thread.start()
 
-
 bot.infinity_polling()
-
