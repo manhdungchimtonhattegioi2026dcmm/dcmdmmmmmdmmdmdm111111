@@ -16,9 +16,9 @@ bot = telebot.TeleBot(TOKEN)
 # ================== CẤU HÌNH REPORT ==================
 REPORT_CHAT_ID = -1002542187639
 REPORT_TOPIC_ID = 11780
-CURRENT_VERSION = "8.1.4" # Thay đổi số này khi bạn phát hành bản mới
+CURRENT_VERSION = "8.1.5" # Thay đổi số này khi bạn phát hành bản mới
 UPDATE_API_URL = "https://laykey.x10.mx/update/config.json"
-CLICK1S_TOKEN = "b28cc2aee7d4b3d798fb63a5e59bd5f58ac81036"
+YEUMONEY_TOKEN = "6ec3529d5d8cb18405369923670980ec155af75fb3a70c1c90c5a9d9ac25ceea"
 LINK4M_API_KEY = "66d85245cc8f2674de40add1"
 
 ADMIN_ID = 6683331082
@@ -696,55 +696,62 @@ def handle_getkey(message):
     base_url = f"https://laykey.x10.mx/index.html?ma={key_code}"
     final_url = None
 
-    # --- BƯỚC 1: Thử Click1s ---
+    # --- BƯỚC 1: Thử Yeumoney ---
     try:
-        print(f"[DEBUG] Trying Click1s for {uid}")
-        response = requests.get(
-            f"https://click1s.com/api/api-develop?token={CLICK1S_TOKEN}&format=json&url={urllib.parse.quote(base_url)}",
+        print(f"[DEBUG] Trying Yeumoney for {uid}")
+        ym_res = requests.get(
+            f"https://yeumoney.com/QL_api.php?token={YEUMONEY_TOKEN}&format=json&url={urllib.parse.quote(base_url)}",
             timeout=10
-        )
-        c1s_res = response.json()
-        
-        # Sửa điều kiện: Kiểm tra success là True (boolean)
-        if c1s_res.get("success") == True: 
-            final_url = c1s_res.get("shortenedUrl")
-            print(f"[DEBUG] Click1s success: {final_url}")
+        ).json()
+        if ym_res.get("status") == "success":
+            final_url = ym_res.get("shortenedUrl")
+            print(f"[DEBUG] Yeumoney success: {final_url}")
         else:
-            print(f"[DEBUG] Click1s failed: {c1s_res.get('message')}")
+            print(f"[DEBUG] Yeumoney failed: {ym_res}")
             final_url = None
     except Exception as e:
-        print(f"[DEBUG] Click1s exception: {e}")
+        print(f"[DEBUG] Yeumoney exception: {e}")
         final_url = None
 
-    # --- BƯỚC 2: Nếu Click1s có link, bọc tiếp qua Link4M (Tùy chọn) ---
+    # --- BƯỚC 2: Nếu Yeumoney OK thì tiếp tục rút gọn Link4M ---
     if final_url:
         try:
+            print(f"[DEBUG] Trying Link4M to further shorten Yeumoney link for {uid}")
             l4m_res = requests.get(
                 f"https://link4m.co/api-shorten/v2?api={LINK4M_API_KEY}&url={urllib.parse.quote(final_url)}",
                 timeout=20,
             ).json()
             if l4m_res.get("status") == "success":
                 final_url = l4m_res.get("shortenedUrl")
-                print(f"[DEBUG] Link4M wrap success: {final_url}")
-        except:
-            pass # Nếu lỗi thì vẫn dùng link Click1s gốc
+                print(f"[DEBUG] Link4M success: {final_url}")
+            else:
+                print(f"[DEBUG] Link4M failed: {l4m_res}, using Yeumoney link")
+        except Exception as e:
+            print(f"[DEBUG] Link4M exception: {e}, using Yeumoney link")
     
-    # --- BƯỚC 3: Nếu Click1s lỗi hoàn toàn, thử Link4M trực tiếp ---
+    # --- BƯỚC 3: Nếu Yeumoney lỗi, thử trực tiếp Link4M ---
     if not final_url:
         try:
+            print(f"[DEBUG] Yeumoney failed, trying Link4M directly for {uid}")
             l4m_res = requests.get(
                 f"https://link4m.co/api-shorten/v2?api={LINK4M_API_KEY}&url={urllib.parse.quote(base_url)}",
                 timeout=20,
             ).json()
             if l4m_res.get("status") == "success":
                 final_url = l4m_res.get("shortenedUrl")
+                print(f"[DEBUG] Link4M direct success: {final_url}")
+            else:
+                print(f"[DEBUG] Link4M direct failed: {l4m_res}")
         except Exception as e:
-            print(f"[DEBUG] Link4M direct failed: {e}")
+            print(f"[DEBUG] Link4M direct exception: {e}")
 
-    # --- BƯỚC 4: Kết quả ---
+    # --- BƯỚC 4: Nếu cả 2 đều lỗi ---
     if not final_url:
-        return bot.reply_to(message, "❌ **Lỗi tạo link, thử lại sau!**", parse_mode="Markdown")
+        print(f"[DEBUG] Both shorten services failed for user {uid}")
+        bot.reply_to(message, "❌ **Không thể rút gọn link, vui lòng thử lại sau!**", parse_mode="Markdown")
+        return
 
+    # --- Gửi link cho user ---
     txt = f"""```
 ╭─────────────⭓
 │ 🔑 GetKey
@@ -813,7 +820,7 @@ def handle_view_like(message):
                 f"👤 Nick: `{message.from_user.first_name}`\n"
                 f"✨ Tăng: `+{buff_amount}` {cmd_type.capitalize()}\n"
                 f"📦 Order ID: `{r.get('order_id')}`\n"
-                f"⏳ Hồi chiêu: `{r.get('next_wait') // 60} phút`"
+                f"⏳ Thời Gian Chờ: `{r.get('next_wait') // 60} phút`"
             )
             bot.edit_message_text(res_text, message.chat.id, temp_msg.message_id, parse_mode="Markdown")
         else:
@@ -916,6 +923,5 @@ def handle_buff(message):
 worker_thread = threading.Thread(target=auto_treo_worker)
 worker_thread.daemon = True # Thread sẽ tự tắt khi bạn tắt script chính
 worker_thread.start()
-
 
 bot.infinity_polling()
